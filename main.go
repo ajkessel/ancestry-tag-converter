@@ -127,6 +127,9 @@ func main() {
 			if baseIndi, ok := base.IndiByKey[key]; ok {
 				converter.MergeINDI(baseIndi, converted, stats)
 				matched++
+			} else if baseIndi := base.FuzzyMatchINDI(converted); baseIndi != nil {
+				converter.MergeINDI(baseIndi, converted, stats)
+				matched++
 			} else {
 				unmatched++
 				if *verbose {

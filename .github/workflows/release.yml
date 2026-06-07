@@ -115,11 +115,23 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          xcrun notarytool submit "dist/ancestry-tag-converter-mac.dmg" \
+          result=$(xcrun notarytool submit "dist/ancestry-tag-converter-mac.dmg" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
-            --wait
+            --wait \
+            --output-format json)
+          echo "$result"
+          submission_id=$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          status=$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+          if [ "$status" != "Accepted" ]; then
+            echo "Notarization failed with status: $status — fetching Apple's log:"
+            xcrun notarytool log "$submission_id" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID"
+            exit 1
+          fi
 
       - name: Staple notarization ticket
         run: xcrun stapler staple "dist/ancestry-tag-converter-mac.dmg"

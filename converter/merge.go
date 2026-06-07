@@ -80,6 +80,49 @@ func LoadAndIndexFromReader(r io.Reader) (*IndexedGEDCOM, error) {
 	return g, nil
 }
 
+// FuzzyMatchINDI finds an INDI record whose compact name contains (or is
+// contained by) the compact name of n, falling back when exact key lookup
+// fails. This handles FTM silently stripping backslashes — "Pinkas\Pinkhas"
+// becomes "PinkasPinkhas" — which may also drop trailing name segments
+// entirely (e.g. "\Lewin" → gone). Both names must share a compact-name
+// prefix of at least 8 characters, and if both have birth years they must
+// agree.
+func (g *IndexedGEDCOM) FuzzyMatchINDI(n *gedcom.Node) *gedcom.Node {
+	qCompact := compactName(n)
+	if len(qCompact) < 8 {
+		return nil
+	}
+	qYear := birthYear(n)
+	for _, rec := range g.IndiByKey {
+		rCompact := compactName(rec)
+		if len(rCompact) < 8 {
+			continue
+		}
+		if !strings.HasPrefix(qCompact, rCompact) && !strings.HasPrefix(rCompact, qCompact) {
+			continue
+		}
+		rYear := birthYear(rec)
+		if qYear != "" && rYear != "" && qYear != rYear {
+			continue
+		}
+		return rec
+	}
+	return nil
+}
+
+// compactName strips every non-letter character from the normalized name,
+// producing a run of lowercase letters with no spaces or punctuation.
+func compactName(n *gedcom.Node) string {
+	name := normalizedName(n)
+	var b strings.Builder
+	for _, r := range name {
+		if r >= 'a' && r <= 'z' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // IndividualKey returns a canonical match key for an INDI node:
 // normalized_name|birth_year, or just normalized_name if no birth year found.
 func IndividualKey(n *gedcom.Node) string {
