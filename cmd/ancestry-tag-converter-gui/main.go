@@ -44,7 +44,7 @@ func main() {
 	phaseLabel := widget.NewLabel("Ready.")
 	logBox := widget.NewMultiLineEntry()
 	logBox.Wrapping = fyne.TextWrapWord
-	logBox.Disable()
+	logBox.SetMinRowsVisible(6)
 
 	// ── Browse helpers (native OS file dialogs via zenity) ───────────────────
 	gedFilter := zenity.FileFilter{Name: "GEDCOM Files", Patterns: []string{"*.ged", "*.GED"}}
@@ -340,6 +340,9 @@ func runConversion(
 			if baseIndi, ok := base.IndiByKey[key]; ok {
 				converter.MergeINDI(baseIndi, conv, stats)
 				matched++
+			} else if baseIndi, _ := base.FuzzyMatchINDI(conv); baseIndi != nil {
+				converter.MergeINDI(baseIndi, conv, stats)
+				matched++
 			} else {
 				unmatched++
 			}
@@ -361,10 +364,6 @@ func runConversion(
 
 		stats.Converted["merge:matched"] = matched
 		stats.Converted["merge:unmatched"] = unmatched
-		appendLog(logBox, fmt.Sprintf("Matched: %d individuals", matched))
-		if unmatched > 0 {
-			appendLog(logBox, fmt.Sprintf("Unmatched: %d individuals (no name+year match in FTM base)", unmatched))
-		}
 	} else {
 		// ── Phase 2: convert and write (20% → 100%) ──────────────────────────
 		pb.begin("Converting…", 0.20, 0.80, inputSize)
@@ -402,12 +401,24 @@ func runConversion(
 	phaseLabel.SetText(fmt.Sprintf("Done in %s.", elapsed))
 	bar.SetValue(1.0)
 
-	appendLog(logBox, fmt.Sprintf("Completed in %s", elapsed))
+	if doMerge {
+		matched := stats.Converted["merge:matched"]
+		unmatched := stats.Converted["merge:unmatched"]
+		skipped := stats.Converted["merge:skipped"]
+		appendLog(logBox, fmt.Sprintf("Merge complete in %s: %d matched, %d unmatched, %d duplicate events skipped",
+			elapsed, matched, unmatched, skipped))
+	} else {
+		total := 0
+		for _, n := range stats.Records {
+			total += n
+		}
+		appendLog(logBox, fmt.Sprintf("Conversion complete in %s: %d records processed", elapsed, total))
+	}
 	appendLog(logBox, fmt.Sprintf("Records: INDI=%d  FAM=%d  OBJE=%d  SOUR=%d",
 		stats.Records["INDI"], stats.Records["FAM"],
 		stats.Records["OBJE"], stats.Records["SOUR"]))
-	if dropped := stats.Dropped["_APID"]; dropped > 0 {
-		appendLog(logBox, fmt.Sprintf("Dropped %d Ancestry-internal tags", totalDropped(stats)))
+	if dropped := totalDropped(stats); dropped > 0 {
+		appendLog(logBox, fmt.Sprintf("Dropped %d Ancestry-internal tags", dropped))
 	}
 	if conv := stats.Converted["DATA/WWW→_LINK"]; conv > 0 {
 		appendLog(logBox, fmt.Sprintf("Converted %d source URLs (DATA/WWW → _LINK)", conv))
