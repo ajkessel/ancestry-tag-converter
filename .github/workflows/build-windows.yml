@@ -10,6 +10,7 @@ env:
   GUI_PKG: "./cmd/ancestry-tag-converter-gui"
 
 jobs:
+  # ── Windows: zip with CLI + GUI ────────────────────────────────────────────
   build-windows:
     runs-on: windows-latest
     steps:
@@ -29,6 +30,21 @@ jobs:
           go build -ldflags="-s -w" -o "dist/${CLI_BIN}.exe" .
           go build -ldflags="-s -w -H windowsgui" -o "dist/${CLI_BIN}-gui.exe" "$GUI_PKG"
 
+      - name: Sign executables
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+          files-folder: dist
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
       - name: Package
         shell: pwsh
         run: |
@@ -40,27 +56,3 @@ jobs:
         with:
           name: windows
           path: dist/ancestry-tag-converter-windows.zip
-
-  # ── Publish GitHub Release ─────────────────────────────────────────────────
-  release:
-    needs: [build-macos, build-linux, build-windows]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          merge-multiple: true
-          path: dist
-
-      - name: Create GitHub Release
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            dist/ancestry-tag-converter-mac.dmg \
-            dist/ancestry-tag-converter-linux.tar.gz \
-            dist/ancestry-tag-converter-windows.zip
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
