@@ -1,8 +1,10 @@
 package converter
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/ajkessel/ancestry-tag-converter/gedcom"
@@ -120,7 +122,7 @@ func birthYear(n *gedcom.Node) string {
 
 // extractYear pulls a 4-digit year from a GEDCOM date string (e.g. "13 Jun 1976" → "1976").
 func extractYear(s string) string {
-	for _, part := range strings.Fields(s) {
+	for _, part := range strings.Fields(normalizeDate(s)) {
 		if len(part) == 4 && part >= "1000" && part <= "2100" {
 			allDigits := true
 			for _, r := range part {
@@ -135,6 +137,34 @@ func extractYear(s string) string {
 		}
 	}
 	return ""
+}
+
+var gedcomMonths = [...]string{
+	"", "jan", "feb", "mar", "apr", "may", "jun",
+	"jul", "aug", "sep", "oct", "nov", "dec",
+}
+
+// normalizeDate converts various date representations to lowercase standard GEDCOM form
+// so that equivalent dates compare equal regardless of source format.
+// "10/2/1905" and "2 OCT 1905" both become "2 oct 1905".
+func normalizeDate(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	// Handle M/D/YYYY slash format produced by Ancestry exports.
+	if parts := strings.Split(s, "/"); len(parts) == 3 {
+		m, err1 := strconv.Atoi(parts[0])
+		d, err2 := strconv.Atoi(parts[1])
+		y, err3 := strconv.Atoi(parts[2])
+		if err1 == nil && err2 == nil && err3 == nil && m >= 1 && m <= 12 {
+			if y < 100 {
+				y += 1900
+			}
+			return fmt.Sprintf("%d %s %d", d, gedcomMonths[m], y)
+		}
+	}
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
 }
 
 // MergeINDI adds non-duplicate events from src (converted Ancestry) into dst (FTM base).
@@ -180,7 +210,7 @@ func buildExistingSet(n *gedcom.Node) map[string]struct{} {
 // eventSignature returns a canonical deduplication string for an event node.
 // Two events with the same signature are considered duplicates.
 func eventSignature(n *gedcom.Node) string {
-	date := strings.ToLower(strings.Join(strings.Fields(childValue(n, "DATE")), " "))
+	date := normalizeDate(childValue(n, "DATE"))
 	plac := strings.ToLower(strings.TrimSpace(childValue(n, "PLAC")))
 	typ := strings.ToLower(strings.TrimSpace(childValue(n, "TYPE")))
 	val := strings.ToLower(strings.TrimSpace(n.Value))
