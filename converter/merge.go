@@ -230,16 +230,27 @@ func normalizeDate(s string) string {
 	if s == "" {
 		return ""
 	}
-	// Handle M/D/YYYY slash format produced by Ancestry exports.
-	if parts := strings.Split(s, "/"); len(parts) == 3 {
+	// Handle slash-separated date formats produced by Ancestry exports.
+	if parts := strings.Split(s, "/"); len(parts) == 2 || len(parts) == 3 {
 		m, err1 := strconv.Atoi(parts[0])
-		d, err2 := strconv.Atoi(parts[1])
-		y, err3 := strconv.Atoi(parts[2])
-		if err1 == nil && err2 == nil && err3 == nil && m >= 1 && m <= 12 {
-			if y < 100 {
-				y += 1900
+		if err1 == nil && m >= 1 && m <= 12 {
+			if len(parts) == 2 {
+				// M/YYYY → "mon YYYY"
+				y, err2 := strconv.Atoi(parts[1])
+				if err2 == nil && y >= 1000 && y <= 2100 {
+					return fmt.Sprintf("%s %d", gedcomMonths[m], y)
+				}
+			} else {
+				// M/D/YYYY → "D mon YYYY"
+				d, err2 := strconv.Atoi(parts[1])
+				y, err3 := strconv.Atoi(parts[2])
+				if err2 == nil && err3 == nil {
+					if y < 100 {
+						y += 1900
+					}
+					return fmt.Sprintf("%d %s %d", d, gedcomMonths[m], y)
+				}
 			}
-			return fmt.Sprintf("%d %s %d", d, gedcomMonths[m], y)
 		}
 	}
 	// Parse token-by-token to handle "March 5,1882", "5 MAR 1882", etc.
