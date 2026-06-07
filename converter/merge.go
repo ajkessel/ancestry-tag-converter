@@ -255,7 +255,8 @@ func normalizeDate(s string) string {
 	}
 	// Parse token-by-token to handle "March 5,1882", "5 MAR 1882", etc.
 	// Commas are treated as whitespace (e.g. "March 5,1882" → "March 5 1882").
-	tokens := strings.Fields(strings.ToLower(strings.ReplaceAll(s, ",", " ")))
+	replacer := strings.NewReplacer(",", " ", ".", " ")
+	tokens := strings.Fields(strings.ToLower(replacer.Replace(s)))
 	var year, day int
 	var month string
 	for _, tok := range tokens {
