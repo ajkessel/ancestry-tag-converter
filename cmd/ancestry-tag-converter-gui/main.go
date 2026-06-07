@@ -13,8 +13,8 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
+	"github.com/ncruces/zenity"
 
 	"github.com/ajkessel/ancestry-tag-converter/converter"
 	"github.com/ajkessel/ancestry-tag-converter/gedcom"
@@ -46,32 +46,32 @@ func main() {
 	logBox.Wrapping = fyne.TextWrapWord
 	logBox.Disable()
 
-	// ── Browse helpers ────────────────────────────────────────────────────────
+	// ── Browse helpers (native OS file dialogs via zenity) ───────────────────
+	gedFilter := zenity.FileFilter{Name: "GEDCOM Files", Patterns: []string{"*.ged", "*.GED"}}
+
 	openGED := func(callback func(string)) {
-		d := dialog.NewFileOpen(func(r fyne.URIReadCloser, err error) {
-			if r == nil || err != nil {
-				return
+		go func() {
+			p, err := zenity.SelectFile(zenity.Title("Select GEDCOM file"), gedFilter)
+			if err == nil && p != "" {
+				callback(p)
 			}
-			r.Close()
-			callback(localPath(r.URI()))
-		}, w)
-		d.SetFilter(storage.NewExtensionFileFilter([]string{".ged", ".GED"}))
-		d.Show()
+		}()
 	}
 	saveGED := func(callback func(string)) {
-		d := dialog.NewFileSave(func(f fyne.URIWriteCloser, err error) {
-			if f == nil || err != nil {
-				return
+		go func() {
+			p, err := zenity.SelectFileSave(
+				zenity.Title("Save output as"),
+				zenity.Filename("output.ged"),
+				zenity.ConfirmOverwrite(),
+				gedFilter,
+			)
+			if err == nil && p != "" {
+				if !strings.HasSuffix(strings.ToLower(p), ".ged") {
+					p += ".ged"
+				}
+				callback(p)
 			}
-			f.Close()
-			p := localPath(f.URI())
-			if !strings.HasSuffix(strings.ToLower(p), ".ged") {
-				p += ".ged"
-			}
-			callback(p)
-		}, w)
-		d.SetFileName("output.ged")
-		d.Show()
+		}()
 	}
 
 	mergeBrowseBtn := widget.NewButton("Browse…", func() { openGED(mergeEntry.SetText) })
@@ -419,14 +419,6 @@ func runConversion(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-func localPath(u fyne.URI) string {
-	p := u.Path()
-	// On Windows, file:///C:/path → Path() returns /C:/path; strip the leading slash.
-	if len(p) > 2 && p[0] == '/' && p[2] == ':' {
-		p = p[1:]
-	}
-	return filepath.FromSlash(p)
-}
 
 func gedSize(path string) int64 {
 	fi, err := os.Stat(path)
