@@ -77,12 +77,14 @@ jobs:
           SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           ENTITLEMENTS="$GITHUB_WORKSPACE/packaging/entitlements.plist"
-          # Sign the inner binary explicitly first so --deep doesn't miss it
-          codesign --force --verify --verbose --timestamp \
-            --sign "$SIGNING_IDENTITY" \
-            --options runtime \
-            --entitlements "$ENTITLEMENTS" \
-            "dist/$APP_NAME.app/Contents/MacOS/$APP_NAME"
+          # Sign each nested binary explicitly before signing the bundle
+          find "dist/$APP_NAME.app/Contents/MacOS" -type f | while read -r bin; do
+            codesign --force --verify --verbose --timestamp \
+              --sign "$SIGNING_IDENTITY" \
+              --options runtime \
+              --entitlements "$ENTITLEMENTS" \
+              "$bin"
+          done
           codesign --deep --force --verify --verbose --timestamp \
             --sign "$SIGNING_IDENTITY" \
             --options runtime \
