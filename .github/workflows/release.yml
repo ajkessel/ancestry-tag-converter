@@ -55,9 +55,7 @@ jobs:
         # fyne package must run from within the package directory
         run: |
           cd "$GUI_PKG"
-          ICON_FLAG=""
-          # Uncomment and set path when an icon is available:
-          # ICON_FLAG="-icon ../../packaging/icon.png"
+          ICON_FLAG="-icon ../../packaging/icon.png"
           fyne package -os darwin \
             -appID "$APP_ID" \
             -name "$APP_NAME" \
