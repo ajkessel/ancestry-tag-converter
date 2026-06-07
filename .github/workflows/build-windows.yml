@@ -1,0 +1,66 @@
+name: build-windows
+
+on:
+  workflow_dispatch:
+
+env:
+  APP_NAME: "Ancestry Tag Converter"
+  APP_ID: "com.ajkessel.ancestry-tag-converter"
+  CLI_BIN: "ancestry-tag-converter"
+  GUI_PKG: "./cmd/ancestry-tag-converter-gui"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Ensure MinGW is on PATH (required for Fyne CGO)
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build
+        shell: bash
+        run: |
+          mkdir -p dist
+          go build -ldflags="-s -w" -o "dist/${CLI_BIN}.exe" .
+          go build -ldflags="-s -w -H windowsgui" -o "dist/${CLI_BIN}-gui.exe" "$GUI_PKG"
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path dist\*.exe `
+            -DestinationPath dist\ancestry-tag-converter-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/ancestry-tag-converter-windows.zip
+
+  # ── Publish GitHub Release ─────────────────────────────────────────────────
+  release:
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/ancestry-tag-converter-mac.dmg \
+            dist/ancestry-tag-converter-linux.tar.gz \
+            dist/ancestry-tag-converter-windows.zip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
