@@ -1,8 +1,8 @@
 # Ancestry Tag Converter
 
-This is a tool for genealogists who use Ancestry. It should also be useful in conjunction with Family Tree Maker (FTM)
+This is a data-portability tool for genealogists who use Ancestry.
 
-This tool converts Ancestry GEDCOM exports that contain Ancestry-unique extensions to a more GEDCOM-standard compliant version.
+This tool converts Ancestry GEDCOM exports that contain Ancestry-unique extensions to a more GEDCOM-standard compliant version that can be understood by other applications.
 
 This tool also optionally merges the converted records into an existing GEDCOM file (such as one exported by FTM).
 
@@ -10,7 +10,7 @@ This tool also optionally merges the converted records into an existing GEDCOM f
 
 This tool helps bridge the gap between Ancestry and other genealogy platforms.
 
-Ancestry provides a "MyTreeTags" feature that allows users to apply custom tags to their trees. When an Ancestry tree is exported to GEDCOM, these tags are preserved but not in a GEDCOM-standard compliant way. Users who sync their trees to Family Tree Maker (or import their Ancestry GEDCOM into FTM) lose access to these custom tags. Ancestry also provides no mechanism to download media (such as profile photos in your tree).
+Ancestry provides a "MyTreeTags" feature that allows users to apply custom tags to their trees. When an Ancestry tree is exported to GEDCOM, these tags are preserved, but not in a GEDCOM-standard compliant way. Users who sync their trees to Family Tree Maker (or import their Ancestry exported GEDCOM into FTM) lose access to these custom tags. A separate problem is that Ancestry provides no mechanism to download media (such as profile photos in your tree and other image/video/PDF content).
 
 FTM, by contrast, allows users to export a synced Ancestry tree to a GEDCOM file with all media preserved. This GEDCOM file can then be opened in other standards-compliant applications with media like images preserved. But this file will not have any custom tags created in Ancestry.
 
