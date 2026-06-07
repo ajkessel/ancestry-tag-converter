@@ -97,6 +97,7 @@ func normalizedName(n *gedcom.Node) string {
 		if c.Tag == "NAME" {
 			s := c.Value
 			s = strings.ReplaceAll(s, "/", " ")
+			s = strings.ReplaceAll(s, "\\", " ")
 			s = strings.Join(strings.Fields(s), " ")
 			return strings.ToLower(s)
 		}
