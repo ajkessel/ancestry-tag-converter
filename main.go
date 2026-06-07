@@ -105,6 +105,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error loading merge base: %v\n", err)
 			os.Exit(1)
 		}
+		for _, w := range base.Warnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+		}
 
 		in, err := os.Open(inputPath)
 		if err != nil {
@@ -127,7 +130,10 @@ func main() {
 			if baseIndi, ok := base.IndiByKey[key]; ok {
 				converter.MergeINDI(baseIndi, converted, stats)
 				matched++
-			} else if baseIndi := base.FuzzyMatchINDI(converted); baseIndi != nil {
+			} else if baseIndi, ambiguous := base.FuzzyMatchINDI(converted); baseIndi != nil {
+				if ambiguous {
+					fmt.Fprintf(os.Stderr, "warning: ambiguous fuzzy match for %s (key=%q); using first candidate\n", converted.XRef, key)
+				}
 				converter.MergeINDI(baseIndi, converted, stats)
 				matched++
 			} else {

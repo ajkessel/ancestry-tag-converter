@@ -42,7 +42,9 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s \
             -k "build-keychain-pw" "$KEYCHAIN"
           echo "=== Available signing identities ==="
-          security find-identity -v -p codesigning "$KEYCHAIN"
+          echo "=== Developer ID identities ==="
+          security find-identity -v -p codesigning "$KEYCHAIN" | grep "Developer ID" || \
+            echo "WARNING: No Developer ID Application certificate found — notarization will fail"
 
       - name: Extract version
         id: ver
@@ -71,7 +73,13 @@ jobs:
           SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           ENTITLEMENTS="$GITHUB_WORKSPACE/packaging/entitlements.plist"
-          codesign --deep --force --verify --verbose \
+          # Sign the inner binary explicitly first so --deep doesn't miss it
+          codesign --force --verify --verbose --timestamp \
+            --sign "$SIGNING_IDENTITY" \
+            --options runtime \
+            --entitlements "$ENTITLEMENTS" \
+            "dist/$APP_NAME.app/Contents/MacOS/$APP_NAME"
+          codesign --deep --force --verify --verbose --timestamp \
             --sign "$SIGNING_IDENTITY" \
             --options runtime \
             --entitlements "$ENTITLEMENTS" \
@@ -82,7 +90,7 @@ jobs:
           SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           ENTITLEMENTS="$GITHUB_WORKSPACE/packaging/entitlements.plist"
-          codesign --force --verify --verbose \
+          codesign --force --verify --verbose --timestamp \
             --sign "$SIGNING_IDENTITY" \
             --options runtime \
             --entitlements "$ENTITLEMENTS" \
@@ -105,7 +113,7 @@ jobs:
         env:
           SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          codesign --force --verify --verbose \
+          codesign --force --verify --verbose --timestamp \
             --sign "$SIGNING_IDENTITY" \
             "dist/ancestry-tag-converter-mac.dmg"
 

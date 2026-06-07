@@ -41,6 +41,7 @@ type IndexedGEDCOM struct {
 	Records   []*gedcom.Node          // all records in original order (includes TRLR)
 	ByXRef    map[string]*gedcom.Node // xref → record
 	IndiByKey map[string]*gedcom.Node // match key → INDI record
+	Warnings  []string                // non-fatal issues found during indexing
 }
 
 // LoadAndIndex reads an entire GEDCOM file into memory and builds lookup indexes.
@@ -73,6 +74,12 @@ func LoadAndIndexFromReader(r io.Reader) (*IndexedGEDCOM, error) {
 		if rec.Tag == "INDI" {
 			key := IndividualKey(rec)
 			if key != "" {
+				if existing, dup := g.IndiByKey[key]; dup {
+					g.Warnings = append(g.Warnings, fmt.Sprintf(
+						"duplicate individuals in base file share key %q: %s and %s",
+						key, existing.XRef, rec.XRef,
+					))
+				}
 				g.IndiByKey[key] = rec
 			}
 		}
@@ -87,12 +94,16 @@ func LoadAndIndexFromReader(r io.Reader) (*IndexedGEDCOM, error) {
 // entirely (e.g. "\Lewin" → gone). Both names must share a compact-name
 // prefix of at least 8 characters, and if both have birth years they must
 // agree.
-func (g *IndexedGEDCOM) FuzzyMatchINDI(n *gedcom.Node) *gedcom.Node {
+//
+// Returns the matched record (or nil) and a boolean that is true when more
+// than one candidate matched — callers should warn the user in that case.
+func (g *IndexedGEDCOM) FuzzyMatchINDI(n *gedcom.Node) (*gedcom.Node, bool) {
 	qCompact := compactName(n)
 	if len(qCompact) < 8 {
-		return nil
+		return nil, false
 	}
 	qYear := birthYear(n)
+	var matches []*gedcom.Node
 	for _, rec := range g.IndiByKey {
 		rCompact := compactName(rec)
 		if len(rCompact) < 8 {
@@ -105,9 +116,16 @@ func (g *IndexedGEDCOM) FuzzyMatchINDI(n *gedcom.Node) *gedcom.Node {
 		if qYear != "" && rYear != "" && qYear != rYear {
 			continue
 		}
-		return rec
+		matches = append(matches, rec)
 	}
-	return nil
+	switch len(matches) {
+	case 0:
+		return nil, false
+	case 1:
+		return matches[0], false
+	default:
+		return matches[0], true
+	}
 }
 
 // compactName strips every non-letter character from the normalized name,
@@ -187,9 +205,26 @@ var gedcomMonths = [...]string{
 	"jul", "aug", "sep", "oct", "nov", "dec",
 }
 
+// monthAbbrev maps full month names and standard abbreviations to 3-letter
+// lowercase abbreviations used in canonical GEDCOM dates.
+var monthAbbrev = map[string]string{
+	"january": "jan", "jan": "jan",
+	"february": "feb", "feb": "feb",
+	"march": "mar", "mar": "mar",
+	"april": "apr", "apr": "apr",
+	"may": "may",
+	"june": "jun", "jun": "jun",
+	"july": "jul", "jul": "jul",
+	"august": "aug", "aug": "aug",
+	"september": "sep", "sept": "sep", "sep": "sep",
+	"october": "oct", "oct": "oct",
+	"november": "nov", "nov": "nov",
+	"december": "dec", "dec": "dec",
+}
+
 // normalizeDate converts various date representations to lowercase standard GEDCOM form
 // so that equivalent dates compare equal regardless of source format.
-// "10/2/1905" and "2 OCT 1905" both become "2 oct 1905".
+// "10/2/1905", "2 OCT 1905", and "March 5,1882" all normalize to canonical form.
 func normalizeDate(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -207,7 +242,31 @@ func normalizeDate(s string) string {
 			return fmt.Sprintf("%d %s %d", d, gedcomMonths[m], y)
 		}
 	}
-	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+	// Parse token-by-token to handle "March 5,1882", "5 MAR 1882", etc.
+	// Commas are treated as whitespace (e.g. "March 5,1882" → "March 5 1882").
+	tokens := strings.Fields(strings.ToLower(strings.ReplaceAll(s, ",", " ")))
+	var year, day int
+	var month string
+	for _, tok := range tokens {
+		if abbr, ok := monthAbbrev[tok]; ok {
+			month = abbr
+		} else if n, err := strconv.Atoi(tok); err == nil {
+			switch {
+			case n >= 1000 && n <= 2100:
+				year = n
+			case n >= 1 && n <= 31 && day == 0:
+				day = n
+			}
+		}
+	}
+	if month != "" && year != 0 {
+		if day != 0 {
+			return fmt.Sprintf("%d %s %d", day, month, year)
+		}
+		return fmt.Sprintf("%s %d", month, year)
+	}
+	// Fallback: normalize whitespace and case only.
+	return strings.ToLower(strings.Join(tokens, " "))
 }
 
 // MergeINDI adds non-duplicate events from src (converted Ancestry) into dst (FTM base).
