@@ -230,6 +230,15 @@ func normalizeDate(s string) string {
 	if s == "" {
 		return ""
 	}
+	// Handle ISO YYYY-MM-DD format.
+	if parts := strings.Split(s, "-"); len(parts) == 3 {
+		y, err1 := strconv.Atoi(parts[0])
+		m, err2 := strconv.Atoi(parts[1])
+		d, err3 := strconv.Atoi(parts[2])
+		if err1 == nil && err2 == nil && err3 == nil && y >= 1000 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31 {
+			return fmt.Sprintf("%d %s %d", d, gedcomMonths[m], y)
+		}
+	}
 	// Handle slash-separated date formats produced by Ancestry exports.
 	if parts := strings.Split(s, "/"); len(parts) == 2 || len(parts) == 3 {
 		m, err1 := strconv.Atoi(parts[0])
