@@ -226,7 +226,7 @@ var monthAbbrev = map[string]string{
 // so that equivalent dates compare equal regardless of source format.
 // "10/2/1905", "2 OCT 1905", and "March 5,1882" all normalize to canonical form.
 func normalizeDate(s string) string {
-	s = strings.TrimSpace(s)
+	s = strings.ToLower(strings.TrimSpace(s))
 	if s == "" {
 		return ""
 	}
@@ -265,7 +265,7 @@ func normalizeDate(s string) string {
 	// Parse token-by-token to handle "March 5,1882", "5 MAR 1882", etc.
 	// Commas are treated as whitespace (e.g. "March 5,1882" → "March 5 1882").
 	replacer := strings.NewReplacer(",", " ", ".", " ")
-	tokens := strings.Fields(strings.ToLower(replacer.Replace(s)))
+	tokens := strings.Fields(replacer.Replace(s))
 	var year, day int
 	var month string
 	for _, tok := range tokens {
@@ -286,8 +286,8 @@ func normalizeDate(s string) string {
 		}
 		return fmt.Sprintf("%s %d", month, year)
 	}
-	// Fallback: normalize whitespace and case only.
-	return strings.ToLower(strings.Join(tokens, " "))
+	// Fallback: normalize whitespace only (already lowercased).
+	return strings.Join(tokens, " ")
 }
 
 // MergeINDI adds non-duplicate events from src (converted Ancestry) into dst (FTM base).
