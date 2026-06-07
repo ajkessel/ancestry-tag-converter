@@ -265,46 +265,46 @@ Phase allocations in merge mode:
 
 ## Building
 
-### CLI
+Use `make` from the repo root. The `Makefile` detects the OS and sets platform-specific flags automatically:
 
 ```bash
-go build -o dist/ancestry-tag-converter .
+make all   # both binaries → dist/
+make cli   # CLI only
+make gui   # GUI only
+make clean # remove dist/
 ```
 
-No CGO required. Pure Go.
+On Windows, run from an MSYS2 shell (which provides both `gcc` and `make`).
+
+### CLI
+
+No CGO required. `go build -o dist/ancestry-tag-converter .` works on any platform.
 
 ### GUI
 
 Requires CGO and a platform C compiler. Fyne's GLFW backend links against OpenGL on Linux/Windows and Metal on macOS.
 
-**Linux**
+**Linux** — install X11/OpenGL development headers first:
 ```bash
 sudo apt install libgl1-mesa-dev libxxf86vm-dev libxrandr-dev \
                  libxi-dev libxcursor-dev libxinerama-dev
-go build -o dist/ancestry-tag-converter-gui ./cmd/ancestry-tag-converter-gui/
 ```
 
-**macOS**
+**macOS** — Xcode CLT only:
 ```bash
 xcode-select --install
-go build -o dist/ancestry-tag-converter-gui ./cmd/ancestry-tag-converter-gui/
 ```
 
-**Windows**
-
-`go build` with CGO requires `gcc` on `PATH`. Without it, the build fails with `cgo.exe: exit status 2` and no further output (cgo cannot locate the compiler).
+**Windows** — `go build` with CGO requires `gcc` on `PATH`. Without it the build fails with `cgo.exe: exit status 2` and no further output.
 
 Install via MSYS2 (recommended):
 ```
-pacman -S mingw-w64-x86_64-gcc
+pacman -S mingw-w64-x86_64-gcc make
 # then add C:\msys64\mingw64\bin to system PATH
 ```
-Or install [TDM-GCC](https://jmeubank.github.io/tdm-gcc/), which adds `gcc` to PATH automatically.
+Or install [TDM-GCC](https://jmeubank.github.io/tdm-gcc/), which adds `gcc` to `PATH` automatically.
 
-The `-H windowsgui` linker flag prevents Windows from opening a console window behind the GUI:
-```
-go build -ldflags="-H windowsgui" -o dist/ancestry-tag-converter-gui.exe ./cmd/ancestry-tag-converter-gui/
-```
+The `-H windowsgui` linker flag tells the Windows PE loader to treat this as a GUI application (suppresses the console window that would otherwise appear on every launch). The `Makefile` adds this flag automatically when `OS=Windows_NT` is detected — there is no equivalent needed on Linux or macOS.
 
 ### Cross-compiling the GUI
 

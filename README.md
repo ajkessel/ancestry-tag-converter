@@ -1,12 +1,24 @@
-# ancestry-tag-converter
+# Ancestry Tag Converter
 
-Converts [Ancestry.com](https://www.ancestry.com) GEDCOM exports to [Family Tree Maker](https://www.mackiev.com/ftm/) (FTM)-compatible GEDCOM files, and optionally merges the converted records into an existing FTM tree.
+This is a tool for genealogists who use Ancestry. It should also be useful in conjunction with Family Tree Maker (FTM)
+
+This tool converts Ancestry GEDCOM exports that contain Ancestry-unique extensions to a more GEDCOM-standard compliant version.
+
+This tool also optionally merges the converted records into an existing GEDCOM file (such as one exported by FTM).
 
 ## Background
 
-Both Ancestry and FTM use the [GEDCOM 5.5.1](https://gedcom.io/specifications/FamilySearchGEDCOMv7.html) standard as their exchange format, but each adds dozens of proprietary custom tags the other doesn't understand. An Ancestry export dropped into FTM will import with thousands of unrecognized `_APID`, `_OID`, `_MTTAG`, and similar tags cluttering every record. Conversely, FTM conventions like `_FREL`/`_MREL` on child relationships are absent from Ancestry exports.
+This tool helps bridge the gap between Ancestry and other genealogy platforms.
 
-This tool bridges that gap: it strips Ancestry-internal tags, converts Ancestry conventions to FTM conventions, and can selectively merge new data from an Ancestry export into your existing FTM tree without duplicating events you already have.
+Ancestry provides a "MyTreeTags" feature that allows users to apply custom tags to their trees. When an Ancestry tree is exported to GEDCOM, these tags are preserved but not in a GEDCOM-standard compliant way. Users who sync their trees to Family Tree Maker (or import their Ancestry GEDCOM into FTM) lose access to these custom tags. Ancestry also provides no mechanism to download media (such as profile photos in your tree).
+
+FTM, by contrast, allows users to export a synced Ancestry tree to a GEDCOM file with all media preserved. This GEDCOM file can then be opened in other standards-compliant applications with media like images preserved. But this file will not have any custom tags created in Ancestry.
+
+This tool bridges that gap: it strips Ancestry-internal tags, converts Ancestry conventions to FTM conventions, and can selectively merge new data from an Ancestry export into your existing FTM GEDCOM export without duplicating events you already have.
+
+This tool does not alter your existing GEDCOM files. Instead, it creates a new output/merged file.
+
+This tool has no network interaction and does not retain any information.
 
 ## Features
 
@@ -62,19 +74,15 @@ Alternatively, [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) provides a self-co
 ### Build
 
 ```bash
-# Clone
 git clone https://github.com/ajkessel/ancestry-tag-converter
 cd ancestry-tag-converter
 
-# CLI tool (no C compiler required)
-go build -o dist/ancestry-tag-converter .
-
-# GUI — Linux / macOS
-go build -o dist/ancestry-tag-converter-gui ./cmd/ancestry-tag-converter-gui/
-
-# GUI — Windows (suppresses background console window)
-go build -ldflags="-H windowsgui" -o dist/ancestry-tag-converter-gui.exe ./cmd/ancestry-tag-converter-gui/
+make all     # builds both CLI and GUI into dist/
+make cli     # CLI only (no C compiler required)
+make gui     # GUI only
 ```
+
+The `Makefile` detects Windows automatically and adds the necessary flags (`.exe` suffixes, GUI subsystem linker flag). On Windows, run these commands from an MSYS2 shell where `gcc` and `make` are on `PATH`.
 
 ## CLI Usage
 
