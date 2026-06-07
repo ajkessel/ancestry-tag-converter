@@ -275,24 +275,36 @@ No CGO required. Pure Go.
 
 ### GUI
 
-```bash
-go build -o dist/ancestry-tag-converter-gui ./cmd/ancestry-tag-converter-gui/
-```
+Requires CGO and a platform C compiler. Fyne's GLFW backend links against OpenGL on Linux/Windows and Metal on macOS.
 
-Requires CGO and platform graphics libraries (Fyne uses OpenGL on Linux/Windows, Metal on macOS via GLFW).
-
-**Linux** — install X11/OpenGL development headers:
+**Linux**
 ```bash
 sudo apt install libgl1-mesa-dev libxxf86vm-dev libxrandr-dev \
                  libxi-dev libxcursor-dev libxinerama-dev
+go build -o dist/ancestry-tag-converter-gui ./cmd/ancestry-tag-converter-gui/
 ```
 
-**macOS** — Xcode CLT only:
+**macOS**
 ```bash
 xcode-select --install
+go build -o dist/ancestry-tag-converter-gui ./cmd/ancestry-tag-converter-gui/
 ```
 
-**Windows** — install [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) or use MSYS2 with `mingw-w64-x86_64-gcc`.
+**Windows**
+
+`go build` with CGO requires `gcc` on `PATH`. Without it, the build fails with `cgo.exe: exit status 2` and no further output (cgo cannot locate the compiler).
+
+Install via MSYS2 (recommended):
+```
+pacman -S mingw-w64-x86_64-gcc
+# then add C:\msys64\mingw64\bin to system PATH
+```
+Or install [TDM-GCC](https://jmeubank.github.io/tdm-gcc/), which adds `gcc` to PATH automatically.
+
+The `-H windowsgui` linker flag prevents Windows from opening a console window behind the GUI:
+```
+go build -ldflags="-H windowsgui" -o dist/ancestry-tag-converter-gui.exe ./cmd/ancestry-tag-converter-gui/
+```
 
 ### Cross-compiling the GUI
 

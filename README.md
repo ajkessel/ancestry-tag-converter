@@ -26,13 +26,38 @@ This tool bridges that gap: it strips Ancestry-internal tags, converts Ancestry 
 
 **CLI:** Go 1.21 or later. No external dependencies.
 
-**GUI:** Go 1.21 or later plus Fyne's native dependencies:
+**GUI:** Go 1.21 or later plus a C compiler and platform graphics libraries. Fyne's GLFW/OpenGL backend requires CGO.
 
-| Platform | Required packages |
-|----------|------------------|
-| Linux | `libgl1-mesa-dev libxxf86vm-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev` (or distro equivalents) |
-| macOS | Xcode Command Line Tools (`xcode-select --install`) |
-| Windows | A C compiler such as [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) or MSYS2 |
+#### Linux
+```bash
+sudo apt install libgl1-mesa-dev libxxf86vm-dev libxrandr-dev \
+                 libxi-dev libxcursor-dev libxinerama-dev
+```
+(substitute your distro's equivalent package manager and names)
+
+#### macOS
+```bash
+xcode-select --install
+```
+
+#### Windows
+
+Fyne requires a GCC-compatible C compiler on `PATH`. The recommended approach is **MSYS2**:
+
+1. Download and install MSYS2 from <https://www.msys2.org/>
+2. Open the **MSYS2 MinGW 64-bit** shell and run:
+   ```
+   pacman -S mingw-w64-x86_64-gcc
+   ```
+3. Add `C:\msys64\mingw64\bin` to your Windows system `PATH`.
+4. Open a new Command Prompt or PowerShell and verify:
+   ```
+   gcc --version
+   ```
+
+Alternatively, [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) provides a self-contained installer that adds `gcc` to `PATH` automatically.
+
+> The CLI binary (`ancestry-tag-converter`) has **no C compiler requirement** — only the GUI needs CGO. Build the CLI with a plain `go build` if you don't need the GUI.
 
 ### Build
 
@@ -41,11 +66,14 @@ This tool bridges that gap: it strips Ancestry-internal tags, converts Ancestry 
 git clone https://github.com/ajkessel/ancestry-tag-converter
 cd ancestry-tag-converter
 
-# CLI tool
+# CLI tool (no C compiler required)
 go build -o dist/ancestry-tag-converter .
 
-# GUI (optional)
+# GUI — Linux / macOS
 go build -o dist/ancestry-tag-converter-gui ./cmd/ancestry-tag-converter-gui/
+
+# GUI — Windows (suppresses background console window)
+go build -ldflags="-H windowsgui" -o dist/ancestry-tag-converter-gui.exe ./cmd/ancestry-tag-converter-gui/
 ```
 
 ## CLI Usage
