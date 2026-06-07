@@ -1,0 +1,228 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  APP_NAME: "Ancestry Tag Converter"
+  APP_ID: "com.ajkessel.ancestry-tag-converter"
+  CLI_BIN: "ancestry-tag-converter"
+  GUI_PKG: "./cmd/ancestry-tag-converter-gui"
+
+jobs:
+  # ── macOS: signed .app + notarized DMG ─────────────────────────────────────
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install fyne CLI
+        run: go install fyne.io/fyne/v2/cmd/fyne@latest
+
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_B64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          CERT_FILE="$RUNNER_TEMP/certificate.p12"
+          echo "$CERTIFICATE_B64" | base64 --decode > "$CERT_FILE"
+          security create-keychain -p "build-keychain-pw" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "build-keychain-pw" "$KEYCHAIN"
+          security import "$CERT_FILE" -k "$KEYCHAIN" -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security list-keychain -d user -s "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "build-keychain-pw" "$KEYCHAIN"
+
+      - name: Extract version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build CLI
+        run: |
+          mkdir -p dist
+          go build -ldflags="-s -w" -o "dist/$CLI_BIN" .
+
+      - name: Package GUI as .app bundle
+        # fyne package must run from within the package directory
+        run: |
+          cd "$GUI_PKG"
+          ICON_FLAG=""
+          # Uncomment and set path when an icon is available:
+          # ICON_FLAG="-icon ../../packaging/icon.png"
+          fyne package -os darwin \
+            -appID "$APP_ID" \
+            -name "$APP_NAME" \
+            -appVersion "${{ steps.ver.outputs.version }}" \
+            -release \
+            $ICON_FLAG
+          mv "$APP_NAME.app" "$GITHUB_WORKSPACE/dist/"
+
+      - name: Sign .app bundle
+        env:
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          ENTITLEMENTS="$GITHUB_WORKSPACE/packaging/entitlements.plist"
+          codesign --deep --force --verify --verbose \
+            --sign "$SIGNING_IDENTITY" \
+            --options runtime \
+            --entitlements "$ENTITLEMENTS" \
+            "dist/$APP_NAME.app"
+
+      - name: Sign CLI binary
+        env:
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          ENTITLEMENTS="$GITHUB_WORKSPACE/packaging/entitlements.plist"
+          codesign --force --verify --verbose \
+            --sign "$SIGNING_IDENTITY" \
+            --options runtime \
+            --entitlements "$ENTITLEMENTS" \
+            "dist/$CLI_BIN"
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg_staging
+          cp -r "dist/$APP_NAME.app" dmg_staging/
+          cp "dist/$CLI_BIN" dmg_staging/
+          # Create a symlink so users can drag-install
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create \
+            -volname "$APP_NAME" \
+            -srcfolder dmg_staging \
+            -ov -format UDZO \
+            "dist/ancestry-tag-converter-mac.dmg"
+
+      - name: Sign DMG
+        env:
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          codesign --force --verify --verbose \
+            --sign "$SIGNING_IDENTITY" \
+            "dist/ancestry-tag-converter-mac.dmg"
+
+      - name: Notarize DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool submit "dist/ancestry-tag-converter-mac.dmg" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+      - name: Staple notarization ticket
+        run: xcrun stapler staple "dist/ancestry-tag-converter-mac.dmg"
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/ancestry-tag-converter-mac.dmg
+
+  # ── Linux: tar.gz with CLI + GUI ───────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install Fyne system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxi-dev \
+            libxxf86vm-dev \
+            xorg-dev
+
+      - name: Build
+        run: |
+          mkdir -p dist
+          go build -ldflags="-s -w" -o "dist/$CLI_BIN" .
+          go build -ldflags="-s -w" -o "dist/${CLI_BIN}-gui" "$GUI_PKG"
+
+      - name: Package
+        run: |
+          tar -czf dist/ancestry-tag-converter-linux.tar.gz \
+            -C dist "$CLI_BIN" "${CLI_BIN}-gui"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/ancestry-tag-converter-linux.tar.gz
+
+  # ── Windows: zip with CLI + GUI ────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Ensure MinGW is on PATH (required for Fyne CGO)
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build
+        shell: bash
+        run: |
+          mkdir -p dist
+          go build -ldflags="-s -w" -o "dist/${CLI_BIN}.exe" .
+          go build -ldflags="-s -w -H windowsgui" -o "dist/${CLI_BIN}-gui.exe" "$GUI_PKG"
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path dist\*.exe `
+            -DestinationPath dist\ancestry-tag-converter-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/ancestry-tag-converter-windows.zip
+
+  # ── Publish GitHub Release ─────────────────────────────────────────────────
+  release:
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/ancestry-tag-converter-mac.dmg \
+            dist/ancestry-tag-converter-linux.tar.gz \
+            dist/ancestry-tag-converter-windows.zip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
