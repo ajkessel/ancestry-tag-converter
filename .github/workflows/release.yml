@@ -38,9 +38,11 @@ jobs:
           security unlock-keychain -p "build-keychain-pw" "$KEYCHAIN"
           security import "$CERT_FILE" -k "$KEYCHAIN" -P "$CERTIFICATE_PASSWORD" \
             -T /usr/bin/codesign
-          security list-keychain -d user -s "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"' | xargs)
           security set-key-partition-list -S apple-tool:,apple: -s \
             -k "build-keychain-pw" "$KEYCHAIN"
+          echo "=== Available signing identities ==="
+          security find-identity -v -p codesigning "$KEYCHAIN"
 
       - name: Extract version
         id: ver
