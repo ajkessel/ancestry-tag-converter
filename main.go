@@ -193,9 +193,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	elapsed := time.Since(start)
+	if *mergeBase != "" {
+		matched := stats.Converted["merge:matched"]
+		unmatched := stats.Converted["merge:unmatched"]
+		skipped := stats.Converted["merge:skipped"]
+		fmt.Fprintf(os.Stderr, "Merge complete in %s: %d matched, %d unmatched, %d duplicate events skipped\n",
+			elapsed.Round(time.Millisecond), matched, unmatched, skipped)
+	} else {
+		total := 0
+		for _, n := range stats.Records {
+			total += n
+		}
+		fmt.Fprintf(os.Stderr, "Conversion complete in %s: %d records processed\n",
+			elapsed.Round(time.Millisecond), total)
+	}
+
 	if *verbose {
-		elapsed := time.Since(start)
-		fmt.Fprintf(os.Stderr, "\n=== Conversion complete in %s ===\n\n", elapsed.Round(time.Millisecond))
+		fmt.Fprintln(os.Stderr)
 
 		if len(unmatchedKeys) > 0 {
 			fmt.Fprintln(os.Stderr, "Unmatched individuals:")

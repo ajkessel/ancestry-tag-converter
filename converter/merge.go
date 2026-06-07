@@ -308,6 +308,7 @@ func MergeINDI(dst, src *gedcom.Node, stats *Stats) int {
 		}
 		sig := eventSignature(child)
 		if _, dup := existing[sig]; dup {
+			stats.Converted["merge:skipped"]++
 			continue
 		}
 		dst.Children = append(dst.Children, child)
