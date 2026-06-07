@@ -1,4 +1,4 @@
-# ancestry-to-ftm
+# ancestry-tag-converter
 
 Converts [Ancestry.com](https://www.ancestry.com) GEDCOM exports to [Family Tree Maker](https://www.mackiev.com/ftm/) (FTM)-compatible GEDCOM files, and optionally merges the converted records into an existing FTM tree.
 
@@ -42,17 +42,17 @@ git clone https://github.com/ajkessel/ancestry-tag-converter
 cd ancestry-tag-converter
 
 # CLI tool
-go build -o dist/ancestry-to-ftm .
+go build -o dist/ancestry-tag-converter .
 
 # GUI (optional)
-go build -o dist/ancestry-to-ftm-gui ./cmd/ancestry-to-ftm-gui/
+go build -o dist/ancestry-tag-converter-gui ./cmd/ancestry-tag-converter-gui/
 ```
 
 ## CLI Usage
 
 ```
-ancestry-to-ftm [flags] ancestry.ged output.ged
-ancestry-to-ftm [flags] --merge ftm-base.ged ancestry.ged output.ged
+ancestry-tag-converter [flags] ancestry.ged output.ged
+ancestry-tag-converter [flags] --merge ftm-base.ged ancestry.ged output.ged
 ```
 
 ### Flags
@@ -68,23 +68,23 @@ ancestry-to-ftm [flags] --merge ftm-base.ged ancestry.ged output.ged
 
 **Convert only** — produce a standalone FTM-compatible GEDCOM:
 ```bash
-ancestry-to-ftm MyTree.ged MyTree_ftm.ged
+ancestry-tag-converter MyTree.ged MyTree_ftm.ged
 ```
 
 **Convert with statistics:**
 ```bash
-ancestry-to-ftm --verbose MyTree.ged MyTree_ftm.ged
+ancestry-tag-converter --verbose MyTree.ged MyTree_ftm.ged
 ```
 
 **Merge into an existing FTM tree:**
 ```bash
-ancestry-to-ftm --merge FamilyTree.ged MyTree.ged merged.ged
+ancestry-tag-converter --merge FamilyTree.ged MyTree.ged merged.ged
 ```
 The tool automatically detects which file is the Ancestry export and which is the FTM base, so argument order doesn't matter.
 
 **Convert without adding media records or relationship tags:**
 ```bash
-ancestry-to-ftm --no-frel --no-media MyTree.ged MyTree_ftm.ged
+ancestry-tag-converter --no-frel --no-media MyTree.ged MyTree_ftm.ged
 ```
 
 ### Progress display
@@ -112,7 +112,7 @@ output.ged already exists. Overwrite? [y/N]
 
 Launch the GUI:
 ```bash
-./ancestry-to-ftm-gui
+./ancestry-tag-converter-gui
 ```
 
 The window presents all the same options as the CLI:

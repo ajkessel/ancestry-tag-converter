@@ -157,9 +157,9 @@ func convertHEAD(n *gedcom.Node, stats *Stats) *gedcom.Node {
 		switch child.Tag {
 		case "SOUR":
 			// Replace Ancestry SOUR with a minimal source block
-			sour := &gedcom.Node{Level: 1, Tag: "SOUR", Value: "ancestry-to-ftm"}
+			sour := &gedcom.Node{Level: 1, Tag: "SOUR", Value: "ancestry-tag-converter"}
 			sour.Children = []*gedcom.Node{
-				{Level: 2, Tag: "NAME", Value: "ancestry-to-ftm GEDCOM converter"},
+				{Level: 2, Tag: "NAME", Value: "ancestry-tag-converter GEDCOM converter"},
 			}
 			out.Children = append(out.Children, sour)
 		case "SUBM", "GEDC", "CHAR", "DATE", "FILE", "DEST", "NOTE":

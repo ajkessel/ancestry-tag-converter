@@ -19,8 +19,8 @@ func main() {
 	mergeBase := flag.String("merge", "", "FTM base GEDCOM to merge converted records into (preserves all base data)")
 	verbose := flag.Bool("verbose", false, "print conversion statistics to stderr")
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: ancestry-to-ftm [flags] input.ged output.ged")
-		fmt.Fprintln(os.Stderr, "       ancestry-to-ftm [flags] --merge ftm-base.ged ancestry.ged output.ged")
+		fmt.Fprintln(os.Stderr, "Usage: ancestry-tag-converter [flags] input.ged output.ged")
+		fmt.Fprintln(os.Stderr, "       ancestry-tag-converter [flags] --merge ftm-base.ged ancestry.ged output.ged")
 		flag.PrintDefaults()
 	}
 	flag.Parse()

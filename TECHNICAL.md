@@ -14,7 +14,7 @@ ancestry-tag-converter/
 │   ├── ancestry_to_ftm.go         All conversion rules + first-pass MT tag scanner
 │   └── merge.go                   Merge index, individual matching, event deduplication
 └── cmd/
-    └── ancestry-to-ftm-gui/
+    └── ancestry-tag-converter-gui/
         └── main.go                Fyne GUI, replicates CLI orchestration with GUI feedback
 ```
 
@@ -172,7 +172,7 @@ The converter checks whether the `NOTE` value "looks like a school name" (short,
 
 **`HEAD` cleanup**
 
-The `HEAD SOUR` block is replaced with a minimal identifier (`ancestry-to-ftm`). All Ancestry corporate/version fields are dropped.
+The `HEAD SOUR` block is replaced with a minimal identifier (`ancestry-tag-converter`). All Ancestry corporate/version fields are dropped.
 
 **`OBJE` records**
 
@@ -248,7 +248,7 @@ Four phases in merge mode:
 
 In convert-only mode, phases 2 and 4 are omitted and the fractions are redistributed.
 
-### GUI (`cmd/ancestry-to-ftm-gui/main.go`)
+### GUI (`cmd/ancestry-tag-converter-gui/main.go`)
 
 `phaseBar` maps each phase to a sub-range of a `widget.ProgressBar` value (0.0–1.0). A `phaseReader` wraps the `io.Reader` and calls `phaseBar.add(n)` on each read, which calls `bar.SetValue(base + frac*span)`.
 
@@ -268,7 +268,7 @@ Phase allocations in merge mode:
 ### CLI
 
 ```bash
-go build -o dist/ancestry-to-ftm .
+go build -o dist/ancestry-tag-converter .
 ```
 
 No CGO required. Pure Go.
@@ -276,7 +276,7 @@ No CGO required. Pure Go.
 ### GUI
 
 ```bash
-go build -o dist/ancestry-to-ftm-gui ./cmd/ancestry-to-ftm-gui/
+go build -o dist/ancestry-tag-converter-gui ./cmd/ancestry-tag-converter-gui/
 ```
 
 Requires CGO and platform graphics libraries (Fyne uses OpenGL on Linux/Windows, Metal on macOS via GLFW).
@@ -319,6 +319,6 @@ The CLI has zero external dependencies. All other entries in `go.sum` are transi
 
 **Long lines** — The GEDCOM spec limits lines to 255 characters. The writer enforces this by splitting long values into `CONC` continuation lines, slicing at rune boundaries to avoid corrupting multi-byte sequences.
 
-**SIGPIPE** — When the user pipes output (e.g., `ancestry-to-ftm … | head`), a broken pipe kills the process. The CLI flushes the output `bufio.Writer` before printing any verbose statistics to stderr, ensuring the file is complete even if the pipe is broken by the reader.
+**SIGPIPE** — When the user pipes output (e.g., `ancestry-tag-converter … | head`), a broken pipe kills the process. The CLI flushes the output `bufio.Writer` before printing any verbose statistics to stderr, ensuring the file is complete even if the pipe is broken by the reader.
 
 **Argument auto-detection** — `isAncestryFile(path)` scans the first 20 lines of a file for the string `"Ancestry"` in the `HEAD`. If the `--merge` argument points to the Ancestry file and the positional argument points to the FTM base (reversed), the files are swapped automatically with a printed notice. The GUI applies the same check before starting conversion.
