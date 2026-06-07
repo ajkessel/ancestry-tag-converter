@@ -1,11 +1,69 @@
 package converter
 
 import (
+	"io"
+	"os"
 	"strings"
 	"unicode"
 
 	"github.com/ajkessel/ancestry-tag-converter/gedcom"
 )
+
+// MTTagInfo holds the resolved name and category for one _MTTAG definition.
+type MTTagInfo struct {
+	Name    string
+	CatXRef string
+	Note    string
+}
+
+// ScanMTTags does a fast first-pass over the GEDCOM file to collect all
+// _MTTAG and _MTCAT records. Returns maps of XRef → info / name.
+func ScanMTTags(path string) (mttagMap map[string]MTTagInfo, mtcatMap map[string]string, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer f.Close()
+	return scanMTTagsFromReader(f)
+}
+
+// ScanMTTagsFromReader is the reader-based variant of ScanMTTags.
+func ScanMTTagsFromReader(r io.Reader) (map[string]MTTagInfo, map[string]string, error) {
+	return scanMTTagsFromReader(r)
+}
+
+func scanMTTagsFromReader(r io.Reader) (map[string]MTTagInfo, map[string]string, error) {
+	mttagMap := make(map[string]MTTagInfo)
+	mtcatMap := make(map[string]string)
+
+	p := gedcom.NewParser(r)
+	for {
+		rec := p.Next()
+		if rec == nil {
+			break
+		}
+		switch rec.Tag {
+		case "_MTTAG":
+			info := MTTagInfo{CatXRef: childValue(rec, "_MTCAT")}
+			info.Name = childValue(rec, "NAME")
+			info.Note = childValue(rec, "NOTE")
+			mttagMap[rec.XRef] = info
+		case "_MTCAT":
+			mtcatMap[rec.XRef] = childValue(rec, "NAME")
+		}
+	}
+	return mttagMap, mtcatMap, nil
+}
+
+// childValue returns the Value of the first child with the given tag, or "".
+func childValue(n *gedcom.Node, tag string) string {
+	for _, c := range n.Children {
+		if c.Tag == tag {
+			return c.Value
+		}
+	}
+	return ""
+}
 
 // Stats tracks what the converter did.
 type Stats struct {
@@ -28,7 +86,7 @@ var dropTags = map[string]bool{
 	"_APID":  true,
 	"_HPID":  true,
 	"_WPID":  true,
-	"_MTTAG": true,
+	// _MTTAG is NOT in dropTags — inline refs on INDI are converted to FACT
 	"_OID":   true,
 	"_META":  true,
 	"_CREA":  true,
@@ -46,12 +104,15 @@ var dropTags = map[string]bool{
 	"_MTYPE": true,
 	"_TREE":  true,
 	"_ENV":   true,
+	"_WLNK":  true,
 }
 
 // Options controls optional conversion behavior.
 type Options struct {
-	NoFRel  bool // don't add _FREL/_MREL to CHIL
-	NoMedia bool // drop all OBJE records
+	NoFRel   bool // don't add _FREL/_MREL to CHIL
+	NoMedia  bool // drop all OBJE records
+	MTTagMap map[string]MTTagInfo // XRef → tag info (from first-pass scan)
+	MTCatMap map[string]string    // XRef → category name
 }
 
 // Convert transforms a single Ancestry GEDCOM record to FTM-compatible form.
@@ -66,7 +127,7 @@ func Convert(n *gedcom.Node, stats *Stats, opts Options) *gedcom.Node {
 	case "HEAD":
 		return convertHEAD(n, stats)
 	case "INDI":
-		return convertINDI(n, stats)
+		return convertINDI(n, stats, opts)
 	case "FAM":
 		return convertFAM(n, stats, opts)
 	case "OBJE":
@@ -113,7 +174,7 @@ func convertHEAD(n *gedcom.Node, stats *Stats) *gedcom.Node {
 }
 
 // convertINDI processes an individual record.
-func convertINDI(n *gedcom.Node, stats *Stats) *gedcom.Node {
+func convertINDI(n *gedcom.Node, stats *Stats, opts Options) *gedcom.Node {
 	out := shallowCopy(n)
 	for _, child := range n.Children {
 		if dropTags[child.Tag] {
@@ -123,6 +184,13 @@ func convertINDI(n *gedcom.Node, stats *Stats) *gedcom.Node {
 		switch child.Tag {
 		case "GRAD":
 			out.Children = append(out.Children, convertGRAD(child, stats))
+		case "_MTTAG":
+			if fact := convertMTTag(child, opts); fact != nil {
+				out.Children = append(out.Children, fact)
+				stats.Converted["_MTTAG→FACT"]++
+			} else {
+				stats.Dropped["_MTTAG"]++
+			}
 		case "NAME", "BIRT", "DEAT", "BURI", "BAPM", "CONF", "BARM", "RESI",
 			"OCCU", "EMIG", "IMMI", "NATU", "EVEN", "MARR", "DIV", "ENGA",
 			"EDUC", "RELI", "TITL", "CENS", "WILL", "PROB", "ADOP", "CHR",
@@ -136,6 +204,26 @@ func convertINDI(n *gedcom.Node, stats *Stats) *gedcom.Node {
 		}
 	}
 	return out
+}
+
+// convertMTTag converts a 1 _MTTAG @T#@ reference on an INDI to a FACT entry.
+func convertMTTag(n *gedcom.Node, opts Options) *gedcom.Node {
+	info, ok := opts.MTTagMap[n.Value]
+	if !ok || info.Name == "" {
+		return nil
+	}
+	fact := &gedcom.Node{Level: n.Level, Tag: "FACT", Value: info.Name}
+	if catName := opts.MTCatMap[info.CatXRef]; catName != "" {
+		fact.Children = append(fact.Children,
+			&gedcom.Node{Level: n.Level + 1, Tag: "TYPE", Value: catName},
+		)
+	}
+	if info.Note != "" {
+		fact.Children = append(fact.Children,
+			&gedcom.Node{Level: n.Level + 1, Tag: "NOTE", Value: info.Note},
+		)
+	}
+	return fact
 }
 
 // convertFAM processes a family record.
