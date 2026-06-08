@@ -32,11 +32,24 @@ jobs:
             libxxf86vm-dev \
             xorg-dev
 
+      - name: Extract version
+        id: ver
+        run: |
+          ref="${GITHUB_REF_NAME#v}"
+          if [[ "$ref" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "version=$ref" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build
         run: |
           mkdir -p dist
           go build -ldflags="-s -w" -o "dist/$CLI_BIN" .
-          go build -ldflags="-s -w" -o "dist/${CLI_BIN}-gui" "$GUI_PKG"
+          # The GUI embeds its icon at runtime via SetIcon; inject the version so
+          # the About dialog reports it (plain go build sets no app metadata).
+          go build -ldflags="-s -w -X main.version=${{ steps.ver.outputs.version }}" \
+            -o "dist/${CLI_BIN}-gui" "$GUI_PKG"
 
       - name: Package
         run: |

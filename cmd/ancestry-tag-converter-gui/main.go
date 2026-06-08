@@ -23,7 +23,7 @@ import (
 func main() {
 	a := app.NewWithID("com.ajkessel.ancestry-tag-converter")
 	a.SetIcon(appIcon)
-	w := a.NewWindow("Ancestry → FTM Converter")
+	w := a.NewWindow("Ancestry Tag Converter")
 	w.Resize(fyne.NewSize(640, 540))
 	w.SetMainMenu(buildMainMenu(a, w))
 
@@ -47,6 +47,11 @@ func main() {
 	logBox := widget.NewMultiLineEntry()
 	logBox.Wrapping = fyne.TextWrapWord
 	logBox.SetMinRowsVisible(6)
+
+	// Revealed only after a successful conversion; opens the folder containing
+	// the output file in the OS-native file explorer.
+	openFolderBtn := widget.NewButton("Open Destination Folder", nil)
+	openFolderBtn.Hide()
 
 	// ── Browse helpers (native OS file dialogs via zenity) ───────────────────
 	gedFilter := zenity.FileFilter{Name: "GEDCOM Files", Patterns: []string{"*.ged", "*.GED"}}
@@ -126,11 +131,12 @@ func main() {
 		noMedia := noMediaCheck.Checked
 
 		convertBtn.Disable()
+		openFolderBtn.Hide()
 		logBox.SetText("")
 		go func() {
 			defer convertBtn.Enable()
 			runConversion(input, output, mergeBase, doMerge, noFRel, noMedia,
-				progressBar, phaseLabel, logBox, w)
+				progressBar, phaseLabel, logBox, openFolderBtn, w)
 		}()
 	}
 
@@ -188,6 +194,7 @@ func main() {
 		phaseLabel,
 		widget.NewSeparator(),
 		container.NewScroll(logBox),
+		openFolderBtn,
 	)
 
 	w.SetContent(container.NewPadded(content))
@@ -254,6 +261,7 @@ func runConversion(
 	bar *widget.ProgressBar,
 	phaseLabel *widget.Label,
 	logBox *widget.Entry,
+	openFolderBtn *widget.Button,
 	win fyne.Window,
 ) {
 	bar.SetValue(0)
@@ -402,6 +410,20 @@ func runConversion(
 	elapsed := time.Since(start).Round(time.Millisecond)
 	phaseLabel.SetText(fmt.Sprintf("Done in %s.", elapsed))
 	bar.SetValue(1.0)
+
+	// Offer to open the folder containing the freshly written output file.
+	// Resolve to an absolute path first so a bare filename doesn't open the
+	// process's working directory instead of the file's real location.
+	outDir := filepath.Dir(outputPath)
+	if abs, err := filepath.Abs(outputPath); err == nil {
+		outDir = filepath.Dir(abs)
+	}
+	openFolderBtn.OnTapped = func() {
+		if err := openInFileManager(outDir); err != nil {
+			dialog.ShowError(err, win)
+		}
+	}
+	openFolderBtn.Show()
 
 	if doMerge {
 		matched := stats.Converted["merge:matched"]

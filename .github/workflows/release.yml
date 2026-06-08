@@ -203,11 +203,24 @@ jobs:
             libxxf86vm-dev \
             xorg-dev
 
+      - name: Extract version
+        id: ver
+        run: |
+          ref="${GITHUB_REF_NAME#v}"
+          if [[ "$ref" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "version=$ref" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build
         run: |
           mkdir -p dist
           go build -ldflags="-s -w" -o "dist/$CLI_BIN" .
-          go build -ldflags="-s -w" -o "dist/${CLI_BIN}-gui" "$GUI_PKG"
+          # The GUI embeds its icon at runtime via SetIcon; inject the version so
+          # the About dialog reports it (plain go build sets no app metadata).
+          go build -ldflags="-s -w -X main.version=${{ steps.ver.outputs.version }}" \
+            -o "dist/${CLI_BIN}-gui" "$GUI_PKG"
 
       - name: Package
         run: |
@@ -232,12 +245,37 @@ jobs:
       - name: Ensure MinGW is on PATH (required for Fyne CGO)
         run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
+      - name: Install fyne CLI
+        run: go install fyne.io/tools/cmd/fyne@latest
+
+      - name: Extract version
+        id: ver
+        shell: bash
+        run: |
+          ref="${GITHUB_REF_NAME#v}"
+          if [[ "$ref" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "version=$ref" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build
         shell: bash
         run: |
           mkdir -p dist
           go build -ldflags="-s -w" -o "dist/${CLI_BIN}.exe" .
-          go build -ldflags="-s -w -H windowsgui" -o "dist/${CLI_BIN}-gui.exe" "$GUI_PKG"
+          # Package the GUI with fyne so the .exe carries the embedded icon and
+          # version, and is linked for the GUI subsystem (no console window).
+          (
+            cd "$GUI_PKG"
+            fyne package -os windows \
+              -icon "$GITHUB_WORKSPACE/packaging/icon.png" \
+              -name "$APP_NAME" \
+              -appID "$APP_ID" \
+              -appVersion "${{ steps.ver.outputs.version }}" \
+              -release
+          )
+          mv "$GUI_PKG/$APP_NAME.exe" "dist/${CLI_BIN}-gui.exe"
 
       - name: Sign executables
         uses: azure/trusted-signing-action@v0
