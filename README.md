@@ -193,3 +193,7 @@ Individuals who appear in Ancestry but have no name+year match in the FTM base a
 - **Media files** are not transferred — Ancestry GEDCOM exports don't include local file paths, only Ancestry-internal references. The structure is preserved for manual re-linking.
 - **Source records** from Ancestry (`SOUR` XRefs) are not merged, as the Ancestry source registry doesn't exist in the FTM file.
 - **Family matching** in merge mode only operates on individuals (`INDI`); family (`FAM`) records are not merged.
+
+## Privacy Policy
+
+[PRIVACY_POLICY.md](PRIVACY_POLICY.md)
