@@ -18,6 +18,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # fetch tags so manual builds can derive the version
 
       - uses: actions/setup-go@v6
         with:
@@ -52,10 +54,19 @@ jobs:
         run: |
           ref="${GITHUB_REF_NAME#v}"
           if [[ "$ref" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
-            echo "version=$ref" >> "$GITHUB_OUTPUT"
+            version="$ref"
           else
-            echo "version=0.0.0" >> "$GITHUB_OUTPUT"
+            # Not a version tag (e.g. a manual run on a branch): fall back to the
+            # most recent tag so the build still reports a real version.
+            tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+            tag="${tag#v}"
+            if [[ "$tag" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+              version="$tag"
+            else
+              version="0.0.0"
+            fi
           fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build CLI (universal)
         # Build both architectures and merge them into a fat binary so it runs
@@ -79,6 +90,10 @@ jobs:
         run: |
           cd "$GUI_PKG"
           ICON_FLAG="-icon ../../packaging/icon.png"
+          # fyne reads extra linker flags from GOFLAGS; inject the version so the
+          # About dialog reports it. GOFLAGS is whitespace-split, so the value
+          # must be a single token (use -X=pkg.var=value form, no spaces).
+          GOFLAGS="-ldflags=-X=main.version=${{ steps.ver.outputs.version }}" \
           fyne package -os darwin \
             -appID "$APP_ID" \
             -name "$APP_NAME" \
@@ -88,7 +103,8 @@ jobs:
           mv "$APP_NAME.app" "$GITHUB_WORKSPACE/dist/"
           # Build the amd64 GUI binary and merge it into the bundle's executable.
           CGO_ENABLED=1 GOARCH=amd64 CC="clang -arch x86_64" CXX="clang++ -arch x86_64" \
-            go build -ldflags="-s -w" -o "$RUNNER_TEMP/${CLI_BIN}-gui-amd64" .
+            go build -ldflags="-s -w -X main.version=${{ steps.ver.outputs.version }}" \
+            -o "$RUNNER_TEMP/${CLI_BIN}-gui-amd64" .
           APP_BIN="$(find "$GITHUB_WORKSPACE/dist/$APP_NAME.app/Contents/MacOS" -type f | head -n1)"
           lipo -create -output "$APP_BIN" "$APP_BIN" "$RUNNER_TEMP/${CLI_BIN}-gui-amd64"
           rm "$RUNNER_TEMP/${CLI_BIN}-gui-amd64"
@@ -186,6 +202,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # fetch tags so manual builds can derive the version
 
       - uses: actions/setup-go@v6
         with:
@@ -208,10 +226,19 @@ jobs:
         run: |
           ref="${GITHUB_REF_NAME#v}"
           if [[ "$ref" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
-            echo "version=$ref" >> "$GITHUB_OUTPUT"
+            version="$ref"
           else
-            echo "version=0.0.0" >> "$GITHUB_OUTPUT"
+            # Not a version tag (e.g. a manual run on a branch): fall back to the
+            # most recent tag so the build still reports a real version.
+            tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+            tag="${tag#v}"
+            if [[ "$tag" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+              version="$tag"
+            else
+              version="0.0.0"
+            fi
           fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: |
@@ -237,6 +264,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # fetch tags so manual builds can derive the version
 
       - uses: actions/setup-go@v6
         with:
@@ -254,10 +283,19 @@ jobs:
         run: |
           ref="${GITHUB_REF_NAME#v}"
           if [[ "$ref" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
-            echo "version=$ref" >> "$GITHUB_OUTPUT"
+            version="$ref"
           else
-            echo "version=0.0.0" >> "$GITHUB_OUTPUT"
+            # Not a version tag (e.g. a manual run on a branch): fall back to the
+            # most recent tag so the build still reports a real version.
+            tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+            tag="${tag#v}"
+            if [[ "$tag" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+              version="$tag"
+            else
+              version="0.0.0"
+            fi
           fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build
         shell: bash
@@ -265,9 +303,12 @@ jobs:
           mkdir -p dist
           go build -ldflags="-s -w" -o "dist/${CLI_BIN}.exe" .
           # Package the GUI with fyne so the .exe carries the embedded icon and
-          # version, and is linked for the GUI subsystem (no console window).
+          # is linked for the GUI subsystem (no console window). fyne reads extra
+          # linker flags from GOFLAGS; inject the version so the About dialog
+          # reports it (GOFLAGS is whitespace-split, so use a single token).
           (
             cd "$GUI_PKG"
+            GOFLAGS="-ldflags=-X=main.version=${{ steps.ver.outputs.version }}" \
             fyne package -os windows \
               -icon "$GITHUB_WORKSPACE/packaging/icon.png" \
               -name "$APP_NAME" \

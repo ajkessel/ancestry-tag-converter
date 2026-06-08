@@ -25,7 +25,7 @@ func main() {
 	a.SetIcon(appIcon)
 	w := a.NewWindow("Ancestry Tag Converter")
 	w.Resize(fyne.NewSize(640, 540))
-	w.SetMainMenu(buildMainMenu(a, w))
+	w.SetMainMenu(buildMainMenu(w))
 
 	// ── File entries ──────────────────────────────────────────────────────────
 	inputEntry := widget.NewEntry()

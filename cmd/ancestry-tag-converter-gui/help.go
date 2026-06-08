@@ -31,17 +31,17 @@ const copyright = "Copyright © 2026 Adam J. Kessel"
 // licenseURL points at the project license for the About dialog reference.
 const licenseURL = "https://github.com/ajkessel/ancestry-tag-converter/blob/main/LICENSE"
 
-// version is overridden at build time via -ldflags "-X main.version=...".
-// When unset (e.g. a plain `go build`), it falls back to the Fyne app metadata
-// (populated by `fyne package -appVersion`) and finally to "dev".
+// version is set at build time via -ldflags "-X main.version=...". Every build
+// path (the Makefile and all CI workflows, including the fyne-packaged macOS and
+// Windows binaries via GOFLAGS) injects it. We deliberately do NOT fall back to
+// fyne.App.Metadata().Version: in -release builds that returns Fyne's hardcoded
+// "0.0.1" default rather than the packaged -appVersion, which would silently
+// mask a missing injection.
 var version string
 
-func appVersion(a fyne.App) string {
+func appVersion() string {
 	if version != "" {
 		return version
-	}
-	if m := a.Metadata(); m.Version != "" {
-		return m.Version
 	}
 	return "dev"
 }
@@ -77,10 +77,10 @@ This tool has no network interaction and does not retain any information.
 // buildMainMenu builds the application menu. Fyne's native-menu handling places
 // a menu labelled "Help" and an item labelled "About" in each platform's
 // conventional location (the Help menu, and the app menu on macOS).
-func buildMainMenu(a fyne.App, w fyne.Window) *fyne.MainMenu {
+func buildMainMenu(w fyne.Window) *fyne.MainMenu {
 	helpMenu := fyne.NewMenu("Help",
 		fyne.NewMenuItem(appName+" Help", func() { showHelp(w) }),
-		fyne.NewMenuItem("About", func() { showAbout(a, w) }),
+		fyne.NewMenuItem("About", func() { showAbout(w) }),
 	)
 	return fyne.NewMainMenu(helpMenu)
 }
@@ -96,12 +96,12 @@ func showHelp(w fyne.Window) {
 	d.Show()
 }
 
-func showAbout(a fyne.App, w fyne.Window) {
+func showAbout(w fyne.Window) {
 	licenseLink := widget.NewHyperlink("BSD 2-Clause License", parseURL(licenseURL))
 
 	title := widget.NewLabelWithStyle(appName, fyne.TextAlignCenter,
 		fyne.TextStyle{Bold: true})
-	ver := widget.NewLabelWithStyle("Version "+appVersion(a), fyne.TextAlignCenter,
+	ver := widget.NewLabelWithStyle("Version "+appVersion(), fyne.TextAlignCenter,
 		fyne.TextStyle{})
 	copy := widget.NewLabelWithStyle(copyright, fyne.TextAlignCenter,
 		fyne.TextStyle{})
