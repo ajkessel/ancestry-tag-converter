@@ -54,13 +54,25 @@ jobs:
             echo "version=0.0.0" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build CLI
+      - name: Build CLI (universal)
+        # Build both architectures and merge them into a fat binary so it runs
+        # natively on Intel and Apple Silicon. clang cross-compiles via -arch,
+        # which keeps CGO working.
         run: |
           mkdir -p dist
-          go build -ldflags="-s -w" -o "dist/$CLI_BIN" .
+          CGO_ENABLED=1 GOARCH=amd64 CC="clang -arch x86_64" CXX="clang++ -arch x86_64" \
+            go build -ldflags="-s -w" -o "dist/${CLI_BIN}-amd64" .
+          CGO_ENABLED=1 GOARCH=arm64 CC="clang -arch arm64" CXX="clang++ -arch arm64" \
+            go build -ldflags="-s -w" -o "dist/${CLI_BIN}-arm64" .
+          lipo -create -output "dist/$CLI_BIN" \
+            "dist/${CLI_BIN}-amd64" "dist/${CLI_BIN}-arm64"
+          rm "dist/${CLI_BIN}-amd64" "dist/${CLI_BIN}-arm64"
+          lipo -info "dist/$CLI_BIN"
 
-      - name: Package GUI as .app bundle
-        # fyne package must run from within the package directory
+      - name: Package GUI as universal .app bundle
+        # fyne package must run from within the package directory. It builds for
+        # the host architecture (arm64); we then build an amd64 slice and lipo
+        # the two into a universal binary inside the bundle.
         run: |
           cd "$GUI_PKG"
           ICON_FLAG="-icon ../../packaging/icon.png"
@@ -71,6 +83,13 @@ jobs:
             -release \
             $ICON_FLAG
           mv "$APP_NAME.app" "$GITHUB_WORKSPACE/dist/"
+          # Build the amd64 GUI binary and merge it into the bundle's executable.
+          CGO_ENABLED=1 GOARCH=amd64 CC="clang -arch x86_64" CXX="clang++ -arch x86_64" \
+            go build -ldflags="-s -w" -o "$RUNNER_TEMP/${CLI_BIN}-gui-amd64" .
+          APP_BIN="$(find "$GITHUB_WORKSPACE/dist/$APP_NAME.app/Contents/MacOS" -type f | head -n1)"
+          lipo -create -output "$APP_BIN" "$APP_BIN" "$RUNNER_TEMP/${CLI_BIN}-gui-amd64"
+          rm "$RUNNER_TEMP/${CLI_BIN}-gui-amd64"
+          lipo -info "$APP_BIN"
 
       - name: Sign .app bundle
         env:
