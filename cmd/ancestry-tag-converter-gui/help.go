@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"net/url"
 
@@ -9,6 +10,17 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 )
+
+// appIconPNG is the application icon, embedded so the running app shows it in
+// the window title bar, taskbar, and dock on every platform — including Linux
+// and Windows builds produced by a plain `go build` (which embeds no icon of
+// its own). Generated from packaging/icon_full.png.
+//
+//go:embed appicon.png
+var appIconPNG []byte
+
+// appIcon is the embedded icon as a Fyne resource for app.SetIcon.
+var appIcon = fyne.NewStaticResource("appicon.png", appIconPNG)
 
 // appName is the human-readable product name shown in the Help and About dialogs.
 const appName = "Ancestry Tag Converter"
