@@ -24,6 +24,7 @@ func main() {
 	a := app.NewWithID("com.ajkessel.ancestry-tag-converter")
 	w := a.NewWindow("Ancestry → FTM Converter")
 	w.Resize(fyne.NewSize(640, 540))
+	w.SetMainMenu(buildMainMenu(a, w))
 
 	// ── File entries ──────────────────────────────────────────────────────────
 	inputEntry := widget.NewEntry()
