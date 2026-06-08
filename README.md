@@ -40,7 +40,7 @@ This tool has no network interaction and does not retain any information.
 - Automatic argument-order detection (swaps Ancestry/FTM files if passed in the wrong order)
 - Available as both a command-line tool and a native GUI
 
-## Installation
+## Building from source
 
 ### Prerequisites
 
