@@ -134,7 +134,7 @@ func main() {
 		openFolderBtn.Hide()
 		logBox.SetText("")
 		go func() {
-			defer convertBtn.Enable()
+			defer fyne.Do(func() { convertBtn.Enable() })
 			runConversion(input, output, mergeBase, doMerge, noFRel, noMedia,
 				progressBar, phaseLabel, logBox, openFolderBtn, w)
 		}()
@@ -203,6 +203,9 @@ func main() {
 
 // ── Conversion logic ──────────────────────────────────────────────────────────
 
+// phaseBar drives the progress bar and phase label from the conversion
+// goroutine. All widget writes are marshalled onto the Fyne UI thread via
+// fyne.Do, as required by Fyne's threading model.
 type phaseBar struct {
 	bar   *widget.ProgressBar
 	label *widget.Label
@@ -210,11 +213,16 @@ type phaseBar struct {
 	span  float64
 	total int64
 	done  int64
+	last  float64 // last value pushed to the bar, for throttling
 }
 
 func (p *phaseBar) begin(label string, base, span float64, total int64) {
 	p.base, p.span, p.total, p.done = base, span, total, 0
-	p.label.SetText(label)
+	p.last = base
+	fyne.Do(func() {
+		p.label.SetText(label)
+		p.bar.SetValue(base)
+	})
 }
 
 func (p *phaseBar) add(n int64) {
@@ -226,11 +234,20 @@ func (p *phaseBar) add(n int64) {
 	if frac > 1 {
 		frac = 1
 	}
-	p.bar.SetValue(p.base + frac*p.span)
+	val := p.base + frac*p.span
+	// Throttle UI updates: only push when the bar advances by ≥0.5%, so a
+	// stream of small reads doesn't flood the Fyne event loop.
+	if val-p.last < 0.005 {
+		return
+	}
+	p.last = val
+	fyne.Do(func() { p.bar.SetValue(val) })
 }
 
 func (p *phaseBar) finish() {
-	p.bar.SetValue(p.base + p.span)
+	val := p.base + p.span
+	p.last = val
+	fyne.Do(func() { p.bar.SetValue(val) })
 }
 
 // phaseReader wraps an io.Reader, advancing the phase bar as bytes are read.
@@ -248,11 +265,19 @@ func (r *phaseReader) Read(buf []byte) (n int, err error) {
 }
 
 func appendLog(box *widget.Entry, msg string) {
-	cur := box.Text
-	if cur != "" {
-		cur += "\n"
-	}
-	box.SetText(cur + msg)
+	fyne.Do(func() {
+		cur := box.Text
+		if cur != "" {
+			cur += "\n"
+		}
+		box.SetText(cur + msg)
+	})
+}
+
+// showError displays an error dialog from any goroutine, marshalling the call
+// onto the Fyne UI thread.
+func showError(win fyne.Window, err error) {
+	fyne.Do(func() { dialog.ShowError(err, win) })
 }
 
 func runConversion(
@@ -264,7 +289,7 @@ func runConversion(
 	openFolderBtn *widget.Button,
 	win fyne.Window,
 ) {
-	bar.SetValue(0)
+	fyne.Do(func() { bar.SetValue(0) })
 
 	// Auto-detect argument order: if the "ancestry" file looks like FTM and vice versa, swap.
 	if doMerge {
@@ -283,13 +308,13 @@ func runConversion(
 	pb.begin("Scanning tags…", 0.0, 0.20, inputSize)
 	scanFile, err := os.Open(inputPath)
 	if err != nil {
-		dialog.ShowError(err, win)
+		showError(win, err)
 		return
 	}
 	mttagMap, mtcatMap, err := converter.ScanMTTagsFromReader(&phaseReader{r: scanFile, p: pb})
 	scanFile.Close()
 	if err != nil {
-		dialog.ShowError(err, win)
+		showError(win, err)
 		return
 	}
 	pb.finish()
@@ -306,7 +331,7 @@ func runConversion(
 	// Create output file early so we can catch permission errors before doing work.
 	out, err := os.Create(outputPath)
 	if err != nil {
-		dialog.ShowError(err, win)
+		showError(win, err)
 		return
 	}
 	defer out.Close()
@@ -317,13 +342,13 @@ func runConversion(
 		pb.begin("Loading base…", 0.20, 0.30, gedSize(mergeBasePath))
 		baseFile, err := os.Open(mergeBasePath)
 		if err != nil {
-			dialog.ShowError(err, win)
+			showError(win, err)
 			return
 		}
 		base, err := converter.LoadAndIndexFromReader(&phaseReader{r: baseFile, p: pb})
 		baseFile.Close()
 		if err != nil {
-			dialog.ShowError(err, win)
+			showError(win, err)
 			return
 		}
 		pb.finish()
@@ -332,7 +357,7 @@ func runConversion(
 		pb.begin("Converting…", 0.50, 0.35, inputSize)
 		in, err := os.Open(inputPath)
 		if err != nil {
-			dialog.ShowError(err, win)
+			showError(win, err)
 			return
 		}
 		matched, unmatched := 0, 0
@@ -365,7 +390,7 @@ func runConversion(
 		pb.begin("Writing…", 0.85, 0.15, total)
 		for _, rec := range base.Records {
 			if err := gedcom.WriteRecord(bw, rec); err != nil {
-				dialog.ShowError(err, win)
+				showError(win, err)
 				return
 			}
 			pb.add(1)
@@ -379,7 +404,7 @@ func runConversion(
 		pb.begin("Converting…", 0.20, 0.80, inputSize)
 		in, err := os.Open(inputPath)
 		if err != nil {
-			dialog.ShowError(err, win)
+			showError(win, err)
 			return
 		}
 		parser := gedcom.NewParser(&phaseReader{r: in, p: pb})
@@ -393,7 +418,7 @@ func runConversion(
 				continue
 			}
 			if err := gedcom.WriteRecord(bw, conv); err != nil {
-				dialog.ShowError(err, win)
+				showError(win, err)
 				return
 			}
 		}
@@ -403,13 +428,11 @@ func runConversion(
 	}
 
 	if err := bw.Flush(); err != nil {
-		dialog.ShowError(err, win)
+		showError(win, err)
 		return
 	}
 
 	elapsed := time.Since(start).Round(time.Millisecond)
-	phaseLabel.SetText(fmt.Sprintf("Done in %s.", elapsed))
-	bar.SetValue(1.0)
 
 	// Offer to open the folder containing the freshly written output file.
 	// Resolve to an absolute path first so a bare filename doesn't open the
@@ -418,12 +441,17 @@ func runConversion(
 	if abs, err := filepath.Abs(outputPath); err == nil {
 		outDir = filepath.Dir(abs)
 	}
-	openFolderBtn.OnTapped = func() {
-		if err := openInFileManager(outDir); err != nil {
-			dialog.ShowError(err, win)
+
+	fyne.Do(func() {
+		phaseLabel.SetText(fmt.Sprintf("Done in %s.", elapsed))
+		bar.SetValue(1.0)
+		openFolderBtn.OnTapped = func() {
+			if err := openInFileManager(outDir); err != nil {
+				dialog.ShowError(err, win)
+			}
 		}
-	}
-	openFolderBtn.Show()
+		openFolderBtn.Show()
+	})
 
 	if doMerge {
 		matched := stats.Converted["merge:matched"]
@@ -475,6 +503,10 @@ func isAncestry(path string) bool {
 			return true
 		}
 	}
+	// A read error before we find the marker only leaves the question
+	// unanswered; the safe default is "not an Ancestry file", which is also
+	// what a clean scan of a non-Ancestry file yields. So the error is ignored.
+	_ = sc.Err()
 	return false
 }
 

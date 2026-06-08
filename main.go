@@ -32,6 +32,20 @@ func main() {
 	inputPath := flag.Arg(0)
 	outputPath := flag.Arg(1)
 
+	// Validate that every input file exists before doing any work, so a typo in
+	// a path fails fast with a clear message instead of partway through (e.g.
+	// after the output file has already been created).
+	if err := mustExist(inputPath, "input"); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if *mergeBase != "" {
+		if err := mustExist(*mergeBase, "merge base"); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+
 	// Auto-detect argument order for --merge: if the user passed the Ancestry
 	// file as the --merge base and the FTM file as the positional input, swap
 	// them automatically rather than silently producing wrong output.
@@ -231,6 +245,22 @@ func main() {
 	}
 }
 
+// mustExist reports a clear error if path does not refer to a readable regular
+// file. label names the file's role (e.g. "input") for the message.
+func mustExist(path, label string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("error: %s file not found: %s", label, path)
+		}
+		return fmt.Errorf("error: cannot access %s file %s: %v", label, path, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("error: %s path is a directory, not a file: %s", label, path)
+	}
+	return nil
+}
+
 // isAncestryFile returns true if the file's HEAD identifies it as an Ancestry
 // export. It reads only the first 20 lines, so it's fast even on large files.
 func isAncestryFile(path string) bool {
@@ -245,6 +275,10 @@ func isAncestryFile(path string) bool {
 			return true
 		}
 	}
+	// A read error before we find the marker only leaves the question
+	// unanswered; the safe default is "not an Ancestry file", which is also
+	// what a clean scan of a non-Ancestry file yields. So the error is ignored.
+	_ = sc.Err()
 	return false
 }
 
