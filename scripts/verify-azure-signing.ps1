@@ -1,117 +1,156 @@
 param(
-    [Parameter(Mandatory)][string]$ResourceGroup,
-    [Parameter(Mandatory)][string]$AccountName,
-    [Parameter(Mandatory)][string]$ProfileName,
-    [Parameter(Mandatory)][string]$ClientId
+    [string]$ClientId  # optional — auto-discovered from role assignments if omitted
 )
 
 $ErrorActionPreference = "Stop"
 $ok = $true
 
-function Section($title) {
-    Write-Host "`n=== $title ===" -ForegroundColor Cyan
-}
+function Section($title) { Write-Host "`n=== $title ===" -ForegroundColor Cyan }
+function Pass($msg)       { Write-Host "  OK   $msg" -ForegroundColor Green }
+function Fail($msg)       { Write-Host "  FAIL $msg" -ForegroundColor Red; $script:ok = $false }
+function Info($msg)       { Write-Host "       $msg" -ForegroundColor Gray }
 
-function Pass($msg) { Write-Host "  OK  $msg" -ForegroundColor Green }
-function Fail($msg) { Write-Host "  FAIL $msg" -ForegroundColor Red; $script:ok = $false }
-function Info($msg) { Write-Host "       $msg" -ForegroundColor Gray }
+function Pick($prompt, $items, $labelProp) {
+    if ($items.Count -eq 1) { return $items[0] }
+    Write-Host "`n  $prompt" -ForegroundColor Yellow
+    for ($i = 0; $i -lt $items.Count; $i++) {
+        Write-Host "  [$($i+1)] $($items[$i].$labelProp)"
+    }
+    $choice = Read-Host "  Enter number"
+    return $items[[int]$choice - 1]
+}
 
 # ── 1. Login / subscription ────────────────────────────────────────────────
 Section "Subscription"
-$account = az account show | ConvertFrom-Json
-if (-not $account) { Fail "Not logged in — run 'az login' first"; exit 1 }
+$account = az account show 2>$null | ConvertFrom-Json
+if (-not $account) { Write-Host "Not logged in — run 'az login' first" -ForegroundColor Red; exit 1 }
 Pass "Logged in"
 Info "Subscription : $($account.name)"
 Info "Tenant       : $($account.tenantId)"
-Info "ID           : $($account.id)"
 $subId = $account.id
 
-# ── 2. Trusted Signing account ────────────────────────────────────────────
+# ── 2. Discover Trusted Signing account ───────────────────────────────────
 Section "Trusted Signing Account"
+$accounts = az resource list `
+    --resource-type Microsoft.CodeSigning/codeSigningAccounts `
+    --query "[].{name:name, resourceGroup:resourceGroup, location:location}" `
+    2>$null | ConvertFrom-Json
+
+if (-not $accounts -or $accounts.Count -eq 0) {
+    Fail "No Trusted Signing accounts found in subscription '$($account.name)'"
+    exit 1
+}
+
+$chosen = Pick "Multiple accounts found — pick one:" $accounts "name"
+$AccountName   = $chosen.name
+$ResourceGroup = $chosen.resourceGroup
+
 $resource = az resource show `
     --resource-group $ResourceGroup `
     --resource-type Microsoft.CodeSigning/codeSigningAccounts `
-    --name $AccountName 2>$null | ConvertFrom-Json
+    --name $AccountName | ConvertFrom-Json
 
-if (-not $resource) {
-    Fail "Account '$AccountName' not found in resource group '$ResourceGroup'"
-} else {
-    Pass "Account found"
-    $endpoint = $resource.properties.accountUri
-    Info "Endpoint (AZURE_TRUSTED_SIGNING_ENDPOINT) : $endpoint"
-}
+Pass "Account found"
+$endpoint = $resource.properties.accountUri
+Info "Account        : $AccountName"
+Info "Resource group : $ResourceGroup"
+Info "Endpoint       : $endpoint"
 
-# ── 3. Certificate profile ────────────────────────────────────────────────
+# ── 3. Discover certificate profile ──────────────────────────────────────
 Section "Certificate Profile"
 $profilesUrl = "https://management.azure.com/subscriptions/$subId/resourceGroups/$ResourceGroup" +
                "/providers/Microsoft.CodeSigning/codeSigningAccounts/$AccountName" +
                "/certificateProfiles?api-version=2024-09-30-preview"
-$profiles = az rest --method GET --url $profilesUrl 2>$null | ConvertFrom-Json
+$profiles = az rest --method GET --url $profilesUrl | ConvertFrom-Json
 
-$profile = $profiles.value | Where-Object { $_.name -eq $ProfileName }
-if (-not $profile) {
-    Fail "Profile '$ProfileName' not found. Available profiles:"
-    $profiles.value | ForEach-Object { Info "  $($_.name) [$($_.properties.status)]" }
+if (-not $profiles.value -or $profiles.value.Count -eq 0) {
+    Fail "No certificate profiles found under account '$AccountName'"
+    exit 1
+}
+
+$chosenProfile = Pick "Multiple profiles found — pick one:" $profiles.value "name"
+$ProfileName   = $chosenProfile.name
+$profileStatus = $chosenProfile.properties.status
+
+Pass "Profile found: $ProfileName"
+if ($profileStatus -eq "Active") {
+    Pass "Profile status: Active"
 } else {
-    Pass "Profile found"
-    Info "Status : $($profile.properties.status)"
-    if ($profile.properties.status -ne "Active") {
-        Fail "Profile status is '$($profile.properties.status)' — must be 'Active' to sign"
+    Fail "Profile status is '$profileStatus' — must be Active to sign"
+}
+
+# ── 4. Discover service principal from role assignments ───────────────────
+Section "Service Principal"
+$profileScope = "/subscriptions/$subId/resourceGroups/$ResourceGroup" +
+                "/providers/Microsoft.CodeSigning/codeSigningAccounts/$AccountName" +
+                "/certificateProfiles/$ProfileName"
+
+$assignments = az role assignment list --scope $profileScope `
+    --role "Trusted Signing Certificate Profile Signer" `
+    --query "[].{principalId:principalId, principalName:principalName, principalType:principalType}" `
+    2>$null | ConvertFrom-Json
+
+if (-not $ClientId) {
+    $spAssignments = $assignments | Where-Object { $_.principalType -eq "ServicePrincipal" }
+    if (-not $spAssignments -or $spAssignments.Count -eq 0) {
+        Fail "No service principal with 'Trusted Signing Certificate Profile Signer' found on profile '$ProfileName'"
+        $ClientId = $null
+    } elseif ($spAssignments.Count -eq 1) {
+        $ClientId = $spAssignments[0].principalId
+        Info "Auto-discovered service principal: $($spAssignments[0].principalName) ($ClientId)"
+    } else {
+        $chosenSp = Pick "Multiple service principals found — pick one:" $spAssignments "principalName"
+        $ClientId = $chosenSp.principalId
     }
 }
 
-# ── 4. Service principal ──────────────────────────────────────────────────
-Section "Service Principal (App Registration)"
-$sp = az ad sp show --id $ClientId 2>$null | ConvertFrom-Json
-if (-not $sp) {
-    Fail "Service principal '$ClientId' not found in this tenant"
-} else {
-    Pass "Service principal found"
-    Info "Display name : $($sp.displayName)"
-    Info "App ID       : $($sp.appId)"
+if ($ClientId) {
+    $sp = az ad sp show --id $ClientId 2>$null | ConvertFrom-Json
+    if (-not $sp) {
+        Fail "Service principal '$ClientId' not found in this tenant"
+        $ClientId = $null
+    } else {
+        Pass "Service principal found"
+        Info "Display name : $($sp.displayName)"
+        Info "App ID       : $($sp.appId)"
+        $ClientId = $sp.appId  # ensure we use the appId (not object ID) for the summary
+    }
 }
 
-# ── 5. Role at account level ──────────────────────────────────────────────
-Section "Role Assignment — Account Level"
+# ── 5. Role assignment check ──────────────────────────────────────────────
+Section "Role Assignment at Certificate Profile Level"
 $accountScope = "/subscriptions/$subId/resourceGroups/$ResourceGroup" +
                 "/providers/Microsoft.CodeSigning/codeSigningAccounts/$AccountName"
-$accountRoles = az role assignment list --scope $accountScope --assignee $ClientId `
-    --query "[].roleDefinitionName" 2>$null | ConvertFrom-Json
 
-if ($accountRoles -contains "Trusted Signing Certificate Profile Signer") {
-    Pass "Trusted Signing Certificate Profile Signer assigned at account level"
+if ($assignments -and $assignments.Count -gt 0) {
+    Pass "Trusted Signing Certificate Profile Signer assigned to:"
+    $assignments | ForEach-Object { Info "$($_.principalName) [$($_.principalType)]" }
 } else {
-    Info "Role not assigned at account level (may still be OK if assigned at profile level)"
-}
-
-# ── 6. Role at certificate profile level (required) ───────────────────────
-Section "Role Assignment — Certificate Profile Level (required)"
-$profileScope = $accountScope + "/certificateProfiles/$ProfileName"
-$profileRoles = az role assignment list --scope $profileScope --assignee $ClientId `
-    --query "[].roleDefinitionName" 2>$null | ConvertFrom-Json
-
-if ($profileRoles -contains "Trusted Signing Certificate Profile Signer") {
-    Pass "Trusted Signing Certificate Profile Signer assigned at profile level"
-} else {
-    Fail "Role NOT assigned at profile level"
+    Fail "No assignments for 'Trusted Signing Certificate Profile Signer' on profile '$ProfileName'"
     Write-Host "`n  To fix, run:" -ForegroundColor Yellow
     Write-Host "  az role assignment create ``" -ForegroundColor Yellow
     Write-Host "    --role `"Trusted Signing Certificate Profile Signer`" ``" -ForegroundColor Yellow
-    Write-Host "    --assignee $ClientId ``" -ForegroundColor Yellow
+    Write-Host "    --assignee <YOUR_CLIENT_ID> ``" -ForegroundColor Yellow
     Write-Host "    --scope `"$profileScope`"" -ForegroundColor Yellow
 }
 
 # ── Summary ───────────────────────────────────────────────────────────────
-Section "Summary"
+Section "GitHub Secrets Checklist"
 if ($ok) {
     Write-Host "  All checks passed." -ForegroundColor Green
-    Write-Host "`n  GitHub secrets checklist:" -ForegroundColor Cyan
-    Write-Host "    AZURE_TENANT_ID                  = $($account.tenantId)"
-    Write-Host "    AZURE_CLIENT_ID                  = $ClientId"
-    Write-Host "    AZURE_CLIENT_SECRET              = (your app registration secret)"
-    Write-Host "    AZURE_TRUSTED_SIGNING_ENDPOINT   = $endpoint"
-    Write-Host "    AZURE_TRUSTED_SIGNING_ACCOUNT    = $AccountName"
-    Write-Host "    AZURE_TRUSTED_SIGNING_PROFILE    = $ProfileName"
-} else {
-    Write-Host "  One or more checks failed — see above." -ForegroundColor Red
+}
+$secrets = [ordered]@{
+    AZURE_TENANT_ID                = $account.tenantId
+    AZURE_CLIENT_ID                = if ($ClientId) { $ClientId } else { "(not found)" }
+    AZURE_CLIENT_SECRET            = "(your app registration secret)"
+    AZURE_TRUSTED_SIGNING_ENDPOINT = $endpoint
+    AZURE_TRUSTED_SIGNING_ACCOUNT  = $AccountName
+    AZURE_TRUSTED_SIGNING_PROFILE  = $ProfileName
+}
+Write-Host ""
+$secrets.GetEnumerator() | ForEach-Object {
+    Write-Host ("  {0,-40} = {1}" -f $_.Key, $_.Value)
+}
+if (-not $ok) {
+    Write-Host "`n  Fix the failures above before updating secrets." -ForegroundColor Red
 }
