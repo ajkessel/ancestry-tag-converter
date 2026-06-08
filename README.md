@@ -6,6 +6,14 @@ This tool converts Ancestry GEDCOM exports that contain Ancestry-unique extensio
 
 This tool also optionally merges the converted records into an existing GEDCOM file (such as one exported by FTM).
 
+## Download
+
+Download the latest builds: 
+- [Linux](https://github.com/ajkessel/ancestry-tag-converter/releases/latest/download/ancestry-tag-converter-linux.tar.gz)
+- [MacOS](https://github.com/ajkessel/ancestry-tag-converter/releases/latest/download/ancestry-tag-converter-mac.dmg)
+- [Windows](https://github.com/ajkessel/ancestry-tag-converter/releases/latest/download/ancestry-tag-converter-windows.zip)
+
+
 ## Background
 
 This tool helps bridge the gap between Ancestry and other genealogy platforms.
