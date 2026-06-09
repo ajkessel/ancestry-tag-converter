@@ -94,7 +94,7 @@ Opens the file, parses every record, and builds two maps:
 
 **Pass 2 — main conversion**
 
-`converter.Convert(node, stats, opts)` processes each record. When it encounters a `1 _MTTAG @T…@` child on an `INDI`, it looks up the XRef in `MTTagMap` and emits:
+`converter.Convert(node, stats, opts)` processes each record. When it encounters a `1 _MTTAG @T…@` child on an `INDI`, it looks up the XRef in `MTTagMap` and emits a `FACT` record by default:
 
 ```
 1 FACT  <human-readable name>
@@ -106,7 +106,20 @@ Both passes use the same streaming parser, so the file is read twice sequentiall
 
 ## Conversion rules
 
+### Original-data modes
+
+`converter.Options.OriginalData` accepts `keep` (default) or `discard`.
+
+- **Keep:** clone every original record and field, then add converted equivalents without removing the source nodes. Explicit removal options such as `NoMedia` still take priority.
+- **Discard:** apply the destructive cleanup rules documented below, matching the application's original behavior.
+
+`converter.Options.CustomTagRecord` accepts `fact` (default) or `event`. The latter emits the standard GEDCOM tag `EVEN`; `EVENT` is only the GUI label.
+
+All generated additions are checked against existing nodes. Conversion is idempotent: running the converter on its own output with the same options must not add duplicate fields.
+
 ### Tags dropped entirely (with all children)
+
+These tags are dropped in `discard` mode. They are retained in `keep` mode.
 
 | Tag | Context |
 |-----|---------|
@@ -125,7 +138,7 @@ Both passes use the same streaming parser, so the file is read twice sequentiall
 | `_TREE`, `_ENV` | Ancestry tree/environment in `HEAD SOUR` |
 | `_WLNK` | Ancestry web link tag |
 
-`_MTTAG` and `_MTCAT` level-0 records are also dropped (after the first pass extracts their names).
+`_MTTAG` and `_MTCAT` level-0 records are also dropped in `discard` mode (after the first pass extracts their names).
 
 ### Tags converted
 
@@ -228,6 +241,10 @@ for each Ancestry INDI (converted):
 ```
 
 After the loop, `base.Records` (including INDI records now augmented with new events) is written to the output file. The FTM `TRLR` record comes from `base.Records`; no second trailer is written.
+
+With original-data mode `keep`, merge retention is intentionally narrower than standalone conversion: matched individuals retain their `_MTTAG` references, and only the referenced `_MTTAG`/`_MTCAT` definition records are added to the FTM output. Definition XRefs are reused when equivalent records already exist or deterministically remapped when they collide. Definitions are inserted before `TRLR`.
+
+The normal event deduplication plus equivalent-definition reuse makes repeated merges idempotent.
 
 ## Progress tracking
 

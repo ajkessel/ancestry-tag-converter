@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -13,45 +14,70 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	"github.com/ncruces/zenity"
 
 	"github.com/ajkessel/ancestry-tag-converter/converter"
 	"github.com/ajkessel/ancestry-tag-converter/gedcom"
+	apphelp "github.com/ajkessel/ancestry-tag-converter/help"
+	"github.com/ajkessel/ancestry-tag-converter/internal/pathcheck"
 )
 
 func main() {
 	a := app.NewWithID("com.ajkessel.ancestry-tag-converter")
-	a.SetIcon(appIcon)
-	w := a.NewWindow("Ancestry Tag Converter")
-	w.Resize(fyne.NewSize(640, 540))
-	w.SetMainMenu(buildMainMenu(w))
+	w := a.NewWindow("Ancestry → FTM Converter")
+	w.Resize(fyne.NewSize(640, 600))
+
+	showHelp := func() {
+		helpWindow := a.NewWindow("Ancestry Tag Converter Help")
+		helpText := widget.NewRichTextFromMarkdown(apphelp.Markdown)
+		helpText.Wrapping = fyne.TextWrapWord
+		helpWindow.SetContent(container.NewPadded(container.NewScroll(helpText)))
+		helpWindow.Resize(fyne.NewSize(640, 600))
+		helpWindow.Show()
+	}
+	helpShortcut := helpKeyboardShortcut(runtime.GOOS)
+	helpItem := fyne.NewMenuItem("Help", showHelp)
+	helpItem.Shortcut = helpShortcut
+	w.SetMainMenu(fyne.NewMainMenu(fyne.NewMenu("Help", helpItem)))
+	w.Canvas().AddShortcut(helpShortcut, func(fyne.Shortcut) {
+		showHelp()
+	})
+	if runtime.GOOS != "darwin" {
+		if desktopCanvas, ok := w.Canvas().(desktop.Canvas); ok {
+			desktopCanvas.SetOnKeyDown(func(event *fyne.KeyEvent) {
+				if event.Name == fyne.KeyF1 {
+					showHelp()
+				}
+			})
+		}
+	}
 
 	// ── File entries ──────────────────────────────────────────────────────────
-	inputEntry := widget.NewEntry()
+	inputEntry := newHelpEntry(showHelp, false)
 	inputEntry.SetPlaceHolder("Ancestry GEDCOM export…")
-	outputEntry := widget.NewEntry()
+	outputEntry := newHelpEntry(showHelp, false)
 	outputEntry.SetPlaceHolder("Output file…")
-	mergeEntry := widget.NewEntry()
+	mergeEntry := newHelpEntry(showHelp, false)
 	mergeEntry.SetPlaceHolder("FTM base GEDCOM file…")
 	mergeEntry.Disable()
 
 	// ── Options ───────────────────────────────────────────────────────────────
-	mergeCheck := widget.NewCheck("Merge into existing FTM base file", nil)
-	noFRelCheck := widget.NewCheck("Skip _FREL/_MREL Natural (relationship tags)", nil)
-	noMediaCheck := widget.NewCheck("Skip media records (OBJE)", nil)
+	mergeCheck := newHelpCheck(showHelp, "Merge into existing FTM base file", nil)
+	noFRelCheck := newHelpCheck(showHelp, "Skip _FREL/_MREL Natural (relationship tags)", nil)
+	noMediaCheck := newHelpCheck(showHelp, "Skip media records (OBJE)", nil)
+	originalDataSelect := newHelpSelect(showHelp, []string{"Keep", "Discard"}, nil)
+	originalDataSelect.SetSelected("Keep")
+	customTagSelect := newHelpSelect(showHelp, []string{"FACT", "EVENT"}, nil)
+	customTagSelect.SetSelected("FACT")
 
 	// ── Progress ──────────────────────────────────────────────────────────────
 	progressBar := widget.NewProgressBar()
 	phaseLabel := widget.NewLabel("Ready.")
-	logBox := widget.NewMultiLineEntry()
+	logBox := newHelpEntry(showHelp, true)
 	logBox.Wrapping = fyne.TextWrapWord
 	logBox.SetMinRowsVisible(6)
-
-	// Revealed only after a successful conversion; opens the folder containing
-	// the output file in the OS-native file explorer.
-	openFolderBtn := widget.NewButton("Open Destination Folder", nil)
-	openFolderBtn.Hide()
 
 	// ── Browse helpers (native OS file dialogs via zenity) ───────────────────
 	gedFilter := zenity.FileFilter{Name: "GEDCOM Files", Patterns: []string{"*.ged", "*.GED"}}
@@ -81,7 +107,7 @@ func main() {
 		}()
 	}
 
-	mergeBrowseBtn := widget.NewButton("Browse…", func() { openGED(mergeEntry.SetText) })
+	mergeBrowseBtn := newHelpButton(showHelp, "Browse…", func() { openGED(mergeEntry.SetText) })
 	mergeBrowseBtn.Disable()
 
 	// Auto-suggest output filename whenever the input path or merge toggle changes.
@@ -115,12 +141,12 @@ func main() {
 	}
 
 	// ── Layout helpers ────────────────────────────────────────────────────────
-	fileRow := func(entry *widget.Entry, btn *widget.Button) *fyne.Container {
+	fileRow := func(entry, btn fyne.CanvasObject) *fyne.Container {
 		return container.NewBorder(nil, nil, nil, btn, entry)
 	}
 
 	// ── Convert action ────────────────────────────────────────────────────────
-	var convertBtn *widget.Button
+	var convertBtn *helpButton
 
 	doConvert := func() {
 		input := inputEntry.Text
@@ -129,18 +155,19 @@ func main() {
 		doMerge := mergeCheck.Checked
 		noFRel := noFRelCheck.Checked
 		noMedia := noMediaCheck.Checked
+		originalData := converter.OriginalDataMode(strings.ToLower(originalDataSelect.Selected))
+		customTags := converter.CustomTagRecord(strings.ToLower(customTagSelect.Selected))
 
 		convertBtn.Disable()
-		openFolderBtn.Hide()
 		logBox.SetText("")
 		go func() {
-			defer fyne.Do(func() { convertBtn.Enable() })
-			runConversion(input, output, mergeBase, doMerge, noFRel, noMedia,
-				progressBar, phaseLabel, logBox, openFolderBtn, w)
+			defer convertBtn.Enable()
+			runConversion(input, output, mergeBase, doMerge, noFRel, noMedia, originalData, customTags,
+				progressBar, phaseLabel, logBox, w)
 		}()
 	}
 
-	convertBtn = widget.NewButton("Convert", func() {
+	convertBtn = newHelpButton(showHelp, "Convert", func() {
 		input := inputEntry.Text
 		output := outputEntry.Text
 		doMerge := mergeCheck.Checked
@@ -155,6 +182,15 @@ func main() {
 			return
 		case doMerge && mergeBase == "":
 			dialog.ShowError(fmt.Errorf("merge enabled but no FTM base file selected"), w)
+			return
+		}
+
+		inputPaths := []string{input}
+		if doMerge {
+			inputPaths = append(inputPaths, mergeBase)
+		}
+		if err := pathcheck.EnsureOutputDistinct(output, inputPaths...); err != nil {
+			dialog.ShowError(err, w)
 			return
 		}
 
@@ -173,10 +209,10 @@ func main() {
 
 	// ── Form ──────────────────────────────────────────────────────────────────
 	form := widget.NewForm(
-		widget.NewFormItem("Ancestry file:", fileRow(inputEntry, widget.NewButton("Browse…", func() {
+		widget.NewFormItem("Ancestry file:", fileRow(inputEntry, newHelpButton(showHelp, "Browse…", func() {
 			openGED(func(p string) { inputEntry.SetText(p) })
 		}))),
-		widget.NewFormItem("Output file:", fileRow(outputEntry, widget.NewButton("Browse…", func() {
+		widget.NewFormItem("Output file:", fileRow(outputEntry, newHelpButton(showHelp, "Browse…", func() {
 			saveGED(func(p string) { outputEntry.SetText(p) })
 		}))),
 		widget.NewFormItem("FTM base file:", fileRow(mergeEntry, mergeBrowseBtn)),
@@ -186,6 +222,10 @@ func main() {
 		form,
 		mergeCheck,
 		widget.NewSeparator(),
+		widget.NewForm(
+			widget.NewFormItem("Original data:", originalDataSelect),
+			widget.NewFormItem("Custom tags as:", customTagSelect),
+		),
 		noFRelCheck,
 		noMediaCheck,
 		widget.NewSeparator(),
@@ -194,18 +234,113 @@ func main() {
 		phaseLabel,
 		widget.NewSeparator(),
 		container.NewScroll(logBox),
-		openFolderBtn,
 	)
 
 	w.SetContent(container.NewPadded(content))
 	w.ShowAndRun()
 }
 
+func helpKeyboardShortcut(goos string) *desktop.CustomShortcut {
+	if goos == "darwin" {
+		return &desktop.CustomShortcut{
+			KeyName:  fyne.KeySlash,
+			Modifier: fyne.KeyModifierSuper | fyne.KeyModifierShift,
+		}
+	}
+	return &desktop.CustomShortcut{KeyName: fyne.KeyF1}
+}
+
+func isHelpKey(event *fyne.KeyEvent) bool {
+	return event != nil && event.Name == fyne.KeyF1
+}
+
+type helpEntry struct {
+	widget.Entry
+	showHelp func()
+}
+
+func newHelpEntry(showHelp func(), multiline bool) *helpEntry {
+	entry := &helpEntry{showHelp: showHelp}
+	entry.MultiLine = multiline
+	entry.Wrapping = fyne.TextWrap(fyne.TextTruncateClip)
+	entry.ExtendBaseWidget(entry)
+	return entry
+}
+
+func (e *helpEntry) KeyDown(event *fyne.KeyEvent) {
+	if isHelpKey(event) {
+		e.showHelp()
+		return
+	}
+	e.Entry.KeyDown(event)
+}
+
+type helpCheck struct {
+	widget.Check
+	showHelp func()
+}
+
+func newHelpCheck(showHelp func(), label string, changed func(bool)) *helpCheck {
+	check := &helpCheck{showHelp: showHelp}
+	check.Text = label
+	check.OnChanged = changed
+	check.ExtendBaseWidget(check)
+	return check
+}
+
+func (c *helpCheck) TypedKey(event *fyne.KeyEvent) {
+	if isHelpKey(event) {
+		c.showHelp()
+		return
+	}
+	c.Check.TypedKey(event)
+}
+
+type helpSelect struct {
+	widget.Select
+	showHelp func()
+}
+
+func newHelpSelect(showHelp func(), options []string, changed func(string)) *helpSelect {
+	selectWidget := &helpSelect{showHelp: showHelp}
+	selectWidget.Options = options
+	selectWidget.PlaceHolder = "(Select one)"
+	selectWidget.OnChanged = changed
+	selectWidget.ExtendBaseWidget(selectWidget)
+	return selectWidget
+}
+
+func (s *helpSelect) TypedKey(event *fyne.KeyEvent) {
+	if isHelpKey(event) {
+		s.showHelp()
+		return
+	}
+	s.Select.TypedKey(event)
+}
+
+type helpButton struct {
+	widget.Button
+	showHelp func()
+}
+
+func newHelpButton(showHelp func(), label string, tapped func()) *helpButton {
+	button := &helpButton{showHelp: showHelp}
+	button.Text = label
+	button.OnTapped = tapped
+	button.ExtendBaseWidget(button)
+	return button
+}
+
+func (b *helpButton) TypedKey(event *fyne.KeyEvent) {
+	if isHelpKey(event) {
+		b.showHelp()
+		return
+	}
+	b.Button.TypedKey(event)
+}
+
 // ── Conversion logic ──────────────────────────────────────────────────────────
 
-// phaseBar drives the progress bar and phase label from the conversion
-// goroutine. All widget writes are marshalled onto the Fyne UI thread via
-// fyne.Do, as required by Fyne's threading model.
 type phaseBar struct {
 	bar   *widget.ProgressBar
 	label *widget.Label
@@ -213,16 +348,11 @@ type phaseBar struct {
 	span  float64
 	total int64
 	done  int64
-	last  float64 // last value pushed to the bar, for throttling
 }
 
 func (p *phaseBar) begin(label string, base, span float64, total int64) {
 	p.base, p.span, p.total, p.done = base, span, total, 0
-	p.last = base
-	fyne.Do(func() {
-		p.label.SetText(label)
-		p.bar.SetValue(base)
-	})
+	p.label.SetText(label)
 }
 
 func (p *phaseBar) add(n int64) {
@@ -234,20 +364,11 @@ func (p *phaseBar) add(n int64) {
 	if frac > 1 {
 		frac = 1
 	}
-	val := p.base + frac*p.span
-	// Throttle UI updates: only push when the bar advances by ≥0.5%, so a
-	// stream of small reads doesn't flood the Fyne event loop.
-	if val-p.last < 0.005 {
-		return
-	}
-	p.last = val
-	fyne.Do(func() { p.bar.SetValue(val) })
+	p.bar.SetValue(p.base + frac*p.span)
 }
 
 func (p *phaseBar) finish() {
-	val := p.base + p.span
-	p.last = val
-	fyne.Do(func() { p.bar.SetValue(val) })
+	p.bar.SetValue(p.base + p.span)
 }
 
 // phaseReader wraps an io.Reader, advancing the phase bar as bytes are read.
@@ -264,32 +385,34 @@ func (r *phaseReader) Read(buf []byte) (n int, err error) {
 	return
 }
 
-func appendLog(box *widget.Entry, msg string) {
-	fyne.Do(func() {
-		cur := box.Text
-		if cur != "" {
-			cur += "\n"
-		}
-		box.SetText(cur + msg)
-	})
-}
-
-// showError displays an error dialog from any goroutine, marshalling the call
-// onto the Fyne UI thread.
-func showError(win fyne.Window, err error) {
-	fyne.Do(func() { dialog.ShowError(err, win) })
+func appendLog(box *helpEntry, msg string) {
+	cur := box.Text
+	if cur != "" {
+		cur += "\n"
+	}
+	box.SetText(cur + msg)
 }
 
 func runConversion(
 	inputPath, outputPath, mergeBasePath string,
 	doMerge, noFRel, noMedia bool,
+	originalData converter.OriginalDataMode,
+	customTags converter.CustomTagRecord,
 	bar *widget.ProgressBar,
 	phaseLabel *widget.Label,
-	logBox *widget.Entry,
-	openFolderBtn *widget.Button,
+	logBox *helpEntry,
 	win fyne.Window,
 ) {
-	fyne.Do(func() { bar.SetValue(0) })
+	bar.SetValue(0)
+
+	inputPaths := []string{inputPath}
+	if doMerge {
+		inputPaths = append(inputPaths, mergeBasePath)
+	}
+	if err := pathcheck.EnsureOutputDistinct(outputPath, inputPaths...); err != nil {
+		dialog.ShowError(err, win)
+		return
+	}
 
 	// Auto-detect argument order: if the "ancestry" file looks like FTM and vice versa, swap.
 	if doMerge {
@@ -308,22 +431,24 @@ func runConversion(
 	pb.begin("Scanning tags…", 0.0, 0.20, inputSize)
 	scanFile, err := os.Open(inputPath)
 	if err != nil {
-		showError(win, err)
+		dialog.ShowError(err, win)
 		return
 	}
 	mttagMap, mtcatMap, err := converter.ScanMTTagsFromReader(&phaseReader{r: scanFile, p: pb})
 	scanFile.Close()
 	if err != nil {
-		showError(win, err)
+		dialog.ShowError(err, win)
 		return
 	}
 	pb.finish()
 
 	opts := converter.Options{
-		NoFRel:   noFRel,
-		NoMedia:  noMedia,
-		MTTagMap: mttagMap,
-		MTCatMap: mtcatMap,
+		NoFRel:          noFRel,
+		NoMedia:         noMedia,
+		OriginalData:    originalData,
+		CustomTagRecord: customTags,
+		MTTagMap:        mttagMap,
+		MTCatMap:        mtcatMap,
 	}
 	stats := converter.NewStats()
 	start := time.Now()
@@ -331,7 +456,7 @@ func runConversion(
 	// Create output file early so we can catch permission errors before doing work.
 	out, err := os.Create(outputPath)
 	if err != nil {
-		showError(win, err)
+		dialog.ShowError(err, win)
 		return
 	}
 	defer out.Close()
@@ -342,22 +467,23 @@ func runConversion(
 		pb.begin("Loading base…", 0.20, 0.30, gedSize(mergeBasePath))
 		baseFile, err := os.Open(mergeBasePath)
 		if err != nil {
-			showError(win, err)
+			dialog.ShowError(err, win)
 			return
 		}
 		base, err := converter.LoadAndIndexFromReader(&phaseReader{r: baseFile, p: pb})
 		baseFile.Close()
 		if err != nil {
-			showError(win, err)
+			dialog.ShowError(err, win)
 			return
 		}
 		pb.finish()
+		customTagPlan := converter.PrepareCustomTagMerge(base, opts)
 
 		// ── Phase 3: convert Ancestry INDIs (50% → 85%) ──────────────────────
 		pb.begin("Converting…", 0.50, 0.35, inputSize)
 		in, err := os.Open(inputPath)
 		if err != nil {
-			showError(win, err)
+			dialog.ShowError(err, win)
 			return
 		}
 		matched, unmatched := 0, 0
@@ -373,9 +499,11 @@ func runConversion(
 			}
 			key := converter.IndividualKey(conv)
 			if baseIndi, ok := base.IndiByKey[key]; ok {
+				customTagPlan.RewriteAndMarkINDI(conv)
 				converter.MergeINDI(baseIndi, conv, stats)
 				matched++
 			} else if baseIndi, _ := base.FuzzyMatchINDI(conv); baseIndi != nil {
+				customTagPlan.RewriteAndMarkINDI(conv)
 				converter.MergeINDI(baseIndi, conv, stats)
 				matched++
 			} else {
@@ -384,13 +512,14 @@ func runConversion(
 		}
 		in.Close()
 		pb.finish()
+		customTagPlan.AppendDefinitions()
 
 		// ── Phase 4: write merged output (85% → 100%) ────────────────────────
 		total := int64(len(base.Records))
 		pb.begin("Writing…", 0.85, 0.15, total)
 		for _, rec := range base.Records {
 			if err := gedcom.WriteRecord(bw, rec); err != nil {
-				showError(win, err)
+				dialog.ShowError(err, win)
 				return
 			}
 			pb.add(1)
@@ -404,7 +533,7 @@ func runConversion(
 		pb.begin("Converting…", 0.20, 0.80, inputSize)
 		in, err := os.Open(inputPath)
 		if err != nil {
-			showError(win, err)
+			dialog.ShowError(err, win)
 			return
 		}
 		parser := gedcom.NewParser(&phaseReader{r: in, p: pb})
@@ -418,7 +547,7 @@ func runConversion(
 				continue
 			}
 			if err := gedcom.WriteRecord(bw, conv); err != nil {
-				showError(win, err)
+				dialog.ShowError(err, win)
 				return
 			}
 		}
@@ -428,30 +557,13 @@ func runConversion(
 	}
 
 	if err := bw.Flush(); err != nil {
-		showError(win, err)
+		dialog.ShowError(err, win)
 		return
 	}
 
 	elapsed := time.Since(start).Round(time.Millisecond)
-
-	// Offer to open the folder containing the freshly written output file.
-	// Resolve to an absolute path first so a bare filename doesn't open the
-	// process's working directory instead of the file's real location.
-	outDir := filepath.Dir(outputPath)
-	if abs, err := filepath.Abs(outputPath); err == nil {
-		outDir = filepath.Dir(abs)
-	}
-
-	fyne.Do(func() {
-		phaseLabel.SetText(fmt.Sprintf("Done in %s.", elapsed))
-		bar.SetValue(1.0)
-		openFolderBtn.OnTapped = func() {
-			if err := openInFileManager(outDir); err != nil {
-				dialog.ShowError(err, win)
-			}
-		}
-		openFolderBtn.Show()
-	})
+	phaseLabel.SetText(fmt.Sprintf("Done in %s.", elapsed))
+	bar.SetValue(1.0)
 
 	if doMerge {
 		matched := stats.Converted["merge:matched"]
@@ -482,7 +594,6 @@ func runConversion(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-
 func gedSize(path string) int64 {
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -503,10 +614,6 @@ func isAncestry(path string) bool {
 			return true
 		}
 	}
-	// A read error before we find the marker only leaves the question
-	// unanswered; the safe default is "not an Ancestry file", which is also
-	// what a clean scan of a non-Ancestry file yields. So the error is ignored.
-	_ = sc.Err()
 	return false
 }
 

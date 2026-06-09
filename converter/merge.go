@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -212,7 +213,7 @@ var monthAbbrev = map[string]string{
 	"february": "feb", "feb": "feb",
 	"march": "mar", "mar": "mar",
 	"april": "apr", "apr": "apr",
-	"may": "may",
+	"may":  "may",
 	"june": "jun", "jun": "jun",
 	"july": "jul", "jul": "jul",
 	"august": "aug", "aug": "aug",
@@ -317,6 +318,208 @@ func MergeINDI(dst, src *gedcom.Node, stats *Stats) int {
 		added++
 	}
 	return added
+}
+
+// CustomTagMergePlan remaps retained Ancestry custom-tag references so they do
+// not collide with records already present in an FTM base. Only definitions
+// referenced by matched individuals are appended.
+type CustomTagMergePlan struct {
+	base       *IndexedGEDCOM
+	tagXRefs   map[string]string
+	catXRefs   map[string]string
+	tagRecords map[string]*gedcom.Node
+	catRecords map[string]*gedcom.Node
+	referenced map[string]bool
+}
+
+// PrepareCustomTagMerge builds a deterministic, idempotent definition plan.
+func PrepareCustomTagMerge(base *IndexedGEDCOM, opts Options) *CustomTagMergePlan {
+	if !opts.keepOriginalData() {
+		return nil
+	}
+	p := &CustomTagMergePlan{
+		base:       base,
+		tagXRefs:   make(map[string]string),
+		catXRefs:   make(map[string]string),
+		tagRecords: make(map[string]*gedcom.Node),
+		catRecords: make(map[string]*gedcom.Node),
+		referenced: make(map[string]bool),
+	}
+	reserved := make(map[string]bool)
+	for xref := range base.ByXRef {
+		reserved[xref] = true
+	}
+
+	catKeys := sortedMTCatKeys(opts.MTCatMap)
+	for _, oldXRef := range catKeys {
+		info := opts.MTCatMap[oldXRef]
+		if info.Record == nil {
+			continue
+		}
+		record := cloneNode(info.Record)
+		newXRef := existingEquivalentXRef(base, record)
+		if newXRef == "" && !reserved[oldXRef] {
+			newXRef = oldXRef
+		}
+		if newXRef == "" {
+			newXRef = uniqueXRef(oldXRef, reserved)
+		}
+		record.XRef = newXRef
+		p.catXRefs[oldXRef] = newXRef
+		p.catRecords[newXRef] = record
+		reserved[newXRef] = true
+	}
+
+	tagKeys := sortedMTTagKeys(opts.MTTagMap)
+	for _, oldXRef := range tagKeys {
+		info := opts.MTTagMap[oldXRef]
+		if info.Record == nil {
+			continue
+		}
+		record := cloneNode(info.Record)
+		rewriteChildValue(record, "_MTCAT", p.catXRefs)
+		newXRef := existingEquivalentXRef(base, record)
+		if newXRef == "" && !reserved[oldXRef] {
+			newXRef = oldXRef
+		}
+		if newXRef == "" {
+			newXRef = uniqueXRef(oldXRef, reserved)
+		}
+		record.XRef = newXRef
+		p.tagXRefs[oldXRef] = newXRef
+		p.tagRecords[newXRef] = record
+		reserved[newXRef] = true
+	}
+	return p
+}
+
+// RewriteAndMarkINDI rewrites custom-tag references on a matched converted
+// individual and records which definitions must be emitted.
+func (p *CustomTagMergePlan) RewriteAndMarkINDI(indi *gedcom.Node) {
+	if p == nil {
+		return
+	}
+	for _, child := range indi.Children {
+		if child.Tag != "_MTTAG" {
+			continue
+		}
+		oldXRef := child.Value
+		if newXRef, ok := p.tagXRefs[oldXRef]; ok {
+			child.Value = newXRef
+			p.referenced[newXRef] = true
+		}
+	}
+}
+
+// AppendDefinitions inserts referenced custom-tag definitions immediately
+// before TRLR. Equivalent existing records are reused, making repeated merges
+// idempotent.
+func (p *CustomTagMergePlan) AppendDefinitions() {
+	if p == nil {
+		return
+	}
+	var records []*gedcom.Node
+	neededCats := make(map[string]bool)
+	tagXRefs := sortedBoolKeys(p.referenced)
+	for _, xref := range tagXRefs {
+		record := p.tagRecords[xref]
+		if record == nil || p.base.ByXRef[xref] != nil {
+			continue
+		}
+		records = append(records, record)
+		if catXRef := childValue(record, "_MTCAT"); catXRef != "" {
+			neededCats[catXRef] = true
+		}
+	}
+	for _, xref := range sortedBoolKeys(neededCats) {
+		record := p.catRecords[xref]
+		if record == nil || p.base.ByXRef[xref] != nil {
+			continue
+		}
+		records = append(records, record)
+	}
+	if len(records) == 0 {
+		return
+	}
+	insertAt := len(p.base.Records)
+	if insertAt > 0 && p.base.Records[insertAt-1].Tag == "TRLR" {
+		insertAt--
+	}
+	p.base.Records = append(p.base.Records, make([]*gedcom.Node, len(records))...)
+	copy(p.base.Records[insertAt+len(records):], p.base.Records[insertAt:])
+	copy(p.base.Records[insertAt:], records)
+	for _, record := range records {
+		p.base.ByXRef[record.XRef] = record
+	}
+}
+
+func existingEquivalentXRef(base *IndexedGEDCOM, source *gedcom.Node) string {
+	keys := make([]string, 0, len(base.ByXRef))
+	for xref := range base.ByXRef {
+		keys = append(keys, xref)
+	}
+	sort.Strings(keys)
+	for _, xref := range keys {
+		candidate := base.ByXRef[xref]
+		if candidate.Tag != source.Tag {
+			continue
+		}
+		sourceAtXRef := cloneNode(source)
+		sourceAtXRef.XRef = xref
+		if nodesEqual(candidate, sourceAtXRef) {
+			return xref
+		}
+	}
+	return ""
+}
+
+func uniqueXRef(want string, reserved map[string]bool) string {
+	stem := strings.Trim(want, "@")
+	for i := 1; ; i++ {
+		candidate := fmt.Sprintf("@%s_ATC%d@", stem, i)
+		if !reserved[candidate] {
+			return candidate
+		}
+	}
+}
+
+func rewriteChildValue(n *gedcom.Node, tag string, remap map[string]string) {
+	for _, child := range n.Children {
+		if child.Tag == tag {
+			if value, ok := remap[child.Value]; ok {
+				child.Value = value
+			}
+		}
+	}
+}
+
+func sortedMTTagKeys(m map[string]MTTagInfo) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedMTCatKeys(m map[string]MTCatInfo) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedBoolKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for key, value := range m {
+		if value {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // buildExistingSet returns the set of deduplication keys for all events in an INDI.
