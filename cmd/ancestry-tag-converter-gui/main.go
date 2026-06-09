@@ -21,6 +21,7 @@ import (
 	"github.com/ajkessel/ancestry-tag-converter/converter"
 	"github.com/ajkessel/ancestry-tag-converter/gedcom"
 	apphelp "github.com/ajkessel/ancestry-tag-converter/help"
+	"github.com/ajkessel/ancestry-tag-converter/internal/pathcheck"
 )
 
 func main() {
@@ -181,6 +182,15 @@ func main() {
 			return
 		case doMerge && mergeBase == "":
 			dialog.ShowError(fmt.Errorf("merge enabled but no FTM base file selected"), w)
+			return
+		}
+
+		inputPaths := []string{input}
+		if doMerge {
+			inputPaths = append(inputPaths, mergeBase)
+		}
+		if err := pathcheck.EnsureOutputDistinct(output, inputPaths...); err != nil {
+			dialog.ShowError(err, w)
 			return
 		}
 
@@ -394,6 +404,15 @@ func runConversion(
 	win fyne.Window,
 ) {
 	bar.SetValue(0)
+
+	inputPaths := []string{inputPath}
+	if doMerge {
+		inputPaths = append(inputPaths, mergeBasePath)
+	}
+	if err := pathcheck.EnsureOutputDistinct(outputPath, inputPaths...); err != nil {
+		dialog.ShowError(err, win)
+		return
+	}
 
 	// Auto-detect argument order: if the "ancestry" file looks like FTM and vice versa, swap.
 	if doMerge {

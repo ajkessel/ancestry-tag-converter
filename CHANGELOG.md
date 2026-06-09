@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Protect against overwriting either of the input files; output must be a different file
 - Routed F1 through focused GUI controls so the help shortcut works regardless
   of which form field or button currently has keyboard focus.
 - Converted fields are now added alongside their original GEDCOM fields when
