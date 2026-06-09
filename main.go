@@ -17,6 +17,8 @@ func main() {
 	noFRel := flag.Bool("no-frel", false, "don't add _FREL/_MREL Natural to CHIL records")
 	noMedia := flag.Bool("no-media", false, "drop all OBJE records and inline OBJE references")
 	mergeBase := flag.String("merge", "", "FTM base GEDCOM to merge converted records into (preserves all base data)")
+	originalData := flag.String("original-data", "keep", "original input data: keep or discard")
+	customTags := flag.String("custom-tags", "fact", "custom tag output record: fact or event")
 	verbose := flag.Bool("verbose", false, "print conversion statistics to stderr")
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: ancestry-tag-converter [flags] input.ged output.ged")
@@ -24,6 +26,17 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+
+	if *originalData != string(converter.OriginalDataKeep) &&
+		*originalData != string(converter.OriginalDataDiscard) {
+		fmt.Fprintln(os.Stderr, "error: --original-data must be keep or discard")
+		os.Exit(1)
+	}
+	if *customTags != string(converter.CustomTagFact) &&
+		*customTags != string(converter.CustomTagEvent) {
+		fmt.Fprintln(os.Stderr, "error: --custom-tags must be fact or event")
+		os.Exit(1)
+	}
 
 	if flag.NArg() != 2 {
 		flag.Usage()
@@ -81,10 +94,12 @@ func main() {
 	bw := bufio.NewWriterSize(out, 4*1024*1024) // 4MB write buffer
 
 	opts := converter.Options{
-		NoFRel:   *noFRel,
-		NoMedia:  *noMedia,
-		MTTagMap: mttagMap,
-		MTCatMap: mtcatMap,
+		NoFRel:          *noFRel,
+		NoMedia:         *noMedia,
+		OriginalData:    converter.OriginalDataMode(*originalData),
+		CustomTagRecord: converter.CustomTagRecord(*customTags),
+		MTTagMap:        mttagMap,
+		MTCatMap:        mtcatMap,
 	}
 	stats := converter.NewStats()
 	start := time.Now()
@@ -108,6 +123,7 @@ func main() {
 		for _, w := range base.Warnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}
+		customTagPlan := converter.PrepareCustomTagMerge(base, opts)
 
 		in, err := os.Open(inputPath)
 		if err != nil {
@@ -128,12 +144,14 @@ func main() {
 			}
 			key := converter.IndividualKey(converted)
 			if baseIndi, ok := base.IndiByKey[key]; ok {
+				customTagPlan.RewriteAndMarkINDI(converted)
 				converter.MergeINDI(baseIndi, converted, stats)
 				matched++
 			} else if baseIndi, ambiguous := base.FuzzyMatchINDI(converted); baseIndi != nil {
 				if ambiguous {
 					fmt.Fprintf(os.Stderr, "warning: ambiguous fuzzy match for %s (key=%q); using first candidate\n", converted.XRef, key)
 				}
+				customTagPlan.RewriteAndMarkINDI(converted)
 				converter.MergeINDI(baseIndi, converted, stats)
 				matched++
 			} else {
@@ -145,6 +163,7 @@ func main() {
 		}
 		pb3.finish()
 		in.Close()
+		customTagPlan.AppendDefinitions()
 
 		// Write base GEDCOM (TRLR is included in base.Records)
 		pb4 := newProgressBar("Writing…", int64(len(base.Records)))

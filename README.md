@@ -22,7 +22,7 @@ Ancestry provides a "MyTreeTags" feature that allows users to apply custom tags 
 
 FTM, by contrast, allows users to export a synced Ancestry tree to a GEDCOM file with all media preserved. This GEDCOM file can then be opened in other standards-compliant applications with media like images preserved. But this file will not have any custom tags created in Ancestry.
 
-This tool bridges that gap: it strips Ancestry-internal tags, converts Ancestry conventions to FTM conventions, and can selectively merge new data from an Ancestry export into your existing FTM GEDCOM export without duplicating events you already have.
+This tool bridges that gap: it converts Ancestry conventions to FTM conventions and can selectively merge new data from an Ancestry export into your existing FTM GEDCOM export without duplicating events you already have. By default, original Ancestry data is retained alongside the converted fields; it can optionally be discarded.
 
 This tool does not alter your existing GEDCOM files. Instead, it creates a new output/merged file.
 
@@ -30,14 +30,15 @@ This tool has no network interaction and does not retain any information.
 
 ## Features
 
-- Strips 20+ Ancestry-internal tags (`_APID`, `_OID`, `_CLON`, `_META`, `_WLNK`, …)
+- Keeps all original input data by default, with an option to discard Ancestry-internal data
 - Converts source citation URLs (`DATA/WWW`) to FTM's `_LINK` + `NOTE` format
 - Adds `_FREL Natural` / `_MREL Natural` after each `CHIL` record in families
 - Converts media dates (`DATE` → `_DATE` inside `OBJE` records)
 - Converts graduation school names from `NOTE` children to inline `GRAD` values
-- Converts `_MTTAG` DNA/matching tags to human-readable `FACT` entries (two-pass lookup)
+- Converts `_MTTAG` DNA/matching tags to human-readable `FACT` (default) or `EVEN` entries (two-pass lookup)
 - Merge mode: preserves all data from an existing FTM file, adding only new events from Ancestry without duplicating anything
 - Automatic argument-order detection (swaps Ancestry/FTM files if passed in the wrong order)
+- Idempotent conversion and merging: repeating the same operation does not add duplicate converted data
 - Available as both a command-line tool and a native GUI
 
 ## Building from source
@@ -104,6 +105,8 @@ ancestry-tag-converter [flags] --merge ftm-base.ged ancestry.ged output.ged
 | Flag | Description |
 |------|-------------|
 | `--merge ftm-base.ged` | Merge converted Ancestry records into an existing FTM file. All FTM data is preserved; only new events are added. |
+| `--original-data keep\|discard` | Keep all original input data alongside converted fields (default), or discard data replaced/removed by conversion. |
+| `--custom-tags fact\|event` | Convert custom tags to `FACT` records (default) or GEDCOM `EVEN` records. |
 | `--no-frel` | Don't add `_FREL`/`_MREL Natural` to child records. |
 | `--no-media` | Drop all `OBJE` media records and inline media references. |
 | `--verbose` | Print conversion statistics to stderr after completion. |
@@ -118,6 +121,11 @@ ancestry-tag-converter MyTree.ged MyTree_ftm.ged
 **Convert with statistics:**
 ```bash
 ancestry-tag-converter --verbose MyTree.ged MyTree_ftm.ged
+```
+
+**Discard original Ancestry-only data and create custom events:**
+```bash
+ancestry-tag-converter --original-data discard --custom-tags event MyTree.ged MyTree_ftm.ged
 ```
 
 **Merge into an existing FTM tree:**
@@ -164,10 +172,14 @@ The window presents all the same options as the CLI:
 1. **Ancestry file** — browse to your Ancestry GEDCOM export.
 2. **Output file** — the output path is auto-suggested based on the input filename (`MyTree_ftm.ged` or `MyTree_merged.ged`). You can change it.
 3. **FTM base file** — enabled when "Merge into existing FTM base file" is checked.
-4. **Options** — checkboxes for skipping relationship tags and/or media records.
-5. **Convert** — starts conversion. If the output file exists, a confirmation dialog appears first.
+4. **Original data** — keep all input data (default) or discard data replaced/removed by conversion.
+5. **Custom tags as** — create `FACT` records (default) or GEDCOM `EVEN` records.
+6. **Options** — checkboxes for skipping relationship tags and/or media records.
+7. **Convert** — starts conversion. If the output file exists, a confirmation dialog appears first.
 
 A progress bar tracks each phase. A log area at the bottom shows matched/unmatched counts and conversion summaries after the run completes.
+
+Open the built-in help with **F1** on Windows/Linux or **Command+?** on macOS.
 
 ## Merge behavior
 
@@ -177,7 +189,7 @@ When `--merge` is used, the tool:
 2. Converts each individual from the Ancestry file.
 3. For each Ancestry individual, finds the matching FTM individual (if any) and adds events that don't already exist in the FTM record.
 
-**What gets merged:** Any event not already present — `FACT`, `OCCU`, `RESI`, `EDUC`, `EVEN`, custom tags, etc.
+**What gets merged:** Any event not already present — `FACT`, `OCCU`, `RESI`, `EDUC`, `EVEN`, custom tags, etc. When original data is kept, `_MTTAG` references on matched individuals and their referenced `_MTTAG`/`_MTCAT` definitions are also retained. Definition XRefs are remapped if they collide with the FTM base.
 
 **What is never merged:** `NAME`, `SEX`, family links (`FAMC`/`FAMS`), source citations (`SOUR`), media links (`OBJE`), and structural IDs (`REFN`, `RIN`, `CHAN`).
 
@@ -186,6 +198,8 @@ When `--merge` is used, the tool:
 **Deduplication** compares a canonical signature of each event: `TAG|val:…|type:…|date:…|plac:…`. Two events with the same signature are considered duplicates.
 
 Individuals who appear in Ancestry but have no name+year match in the FTM base are counted as "unmatched" (reported with `--verbose` or in the GUI log).
+
+Running conversion again on its own output, or repeating the same merge, does not duplicate converted fields or retained custom-tag definitions.
 
 ## Limitations
 

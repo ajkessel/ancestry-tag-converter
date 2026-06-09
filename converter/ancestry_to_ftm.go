@@ -14,11 +14,18 @@ type MTTagInfo struct {
 	Name    string
 	CatXRef string
 	Note    string
+	Record  *gedcom.Node
+}
+
+// MTCatInfo holds the resolved name and original record for one _MTCAT definition.
+type MTCatInfo struct {
+	Name   string
+	Record *gedcom.Node
 }
 
 // ScanMTTags does a fast first-pass over the GEDCOM file to collect all
 // _MTTAG and _MTCAT records. Returns maps of XRef → info / name.
-func ScanMTTags(path string) (mttagMap map[string]MTTagInfo, mtcatMap map[string]string, err error) {
+func ScanMTTags(path string) (mttagMap map[string]MTTagInfo, mtcatMap map[string]MTCatInfo, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, nil, err
@@ -28,13 +35,13 @@ func ScanMTTags(path string) (mttagMap map[string]MTTagInfo, mtcatMap map[string
 }
 
 // ScanMTTagsFromReader is the reader-based variant of ScanMTTags.
-func ScanMTTagsFromReader(r io.Reader) (map[string]MTTagInfo, map[string]string, error) {
+func ScanMTTagsFromReader(r io.Reader) (map[string]MTTagInfo, map[string]MTCatInfo, error) {
 	return scanMTTagsFromReader(r)
 }
 
-func scanMTTagsFromReader(r io.Reader) (map[string]MTTagInfo, map[string]string, error) {
+func scanMTTagsFromReader(r io.Reader) (map[string]MTTagInfo, map[string]MTCatInfo, error) {
 	mttagMap := make(map[string]MTTagInfo)
-	mtcatMap := make(map[string]string)
+	mtcatMap := make(map[string]MTCatInfo)
 
 	p := gedcom.NewParser(r)
 	for {
@@ -44,12 +51,12 @@ func scanMTTagsFromReader(r io.Reader) (map[string]MTTagInfo, map[string]string,
 		}
 		switch rec.Tag {
 		case "_MTTAG":
-			info := MTTagInfo{CatXRef: childValue(rec, "_MTCAT")}
+			info := MTTagInfo{CatXRef: childValue(rec, "_MTCAT"), Record: cloneNode(rec)}
 			info.Name = childValue(rec, "NAME")
 			info.Note = childValue(rec, "NOTE")
 			mttagMap[rec.XRef] = info
 		case "_MTCAT":
-			mtcatMap[rec.XRef] = childValue(rec, "NAME")
+			mtcatMap[rec.XRef] = MTCatInfo{Name: childValue(rec, "NAME"), Record: cloneNode(rec)}
 		}
 	}
 	return mttagMap, mtcatMap, nil
@@ -67,15 +74,15 @@ func childValue(n *gedcom.Node, tag string) string {
 
 // Stats tracks what the converter did.
 type Stats struct {
-	Records  map[string]int
-	Dropped  map[string]int
+	Records   map[string]int
+	Dropped   map[string]int
 	Converted map[string]int
 }
 
 func NewStats() *Stats {
 	return &Stats{
-		Records:  make(map[string]int),
-		Dropped:  make(map[string]int),
+		Records:   make(map[string]int),
+		Dropped:   make(map[string]int),
 		Converted: make(map[string]int),
 	}
 }
@@ -83,9 +90,9 @@ func NewStats() *Stats {
 // dropTags lists tags that should be removed entirely (along with their children).
 // These are all Ancestry-internal with no meaningful FTM equivalent.
 var dropTags = map[string]bool{
-	"_APID":  true,
-	"_HPID":  true,
-	"_WPID":  true,
+	"_APID": true,
+	"_HPID": true,
+	"_WPID": true,
 	// _MTTAG is NOT in dropTags — inline refs on INDI are converted to FACT
 	"_OID":   true,
 	"_META":  true,
@@ -107,12 +114,40 @@ var dropTags = map[string]bool{
 	"_WLNK":  true,
 }
 
-// Options controls optional conversion behavior.
+type OriginalDataMode string
+
+const (
+	OriginalDataKeep    OriginalDataMode = "keep"
+	OriginalDataDiscard OriginalDataMode = "discard"
+)
+
+type CustomTagRecord string
+
+const (
+	CustomTagFact  CustomTagRecord = "fact"
+	CustomTagEvent CustomTagRecord = "event"
+)
+
+// Options controls optional conversion behavior. Empty mode values use the
+// user-facing defaults: keep original data and emit FACT records.
 type Options struct {
-	NoFRel   bool // don't add _FREL/_MREL to CHIL
-	NoMedia  bool // drop all OBJE records
-	MTTagMap map[string]MTTagInfo // XRef → tag info (from first-pass scan)
-	MTCatMap map[string]string    // XRef → category name
+	NoFRel          bool // don't add _FREL/_MREL to CHIL
+	NoMedia         bool // drop all OBJE records
+	OriginalData    OriginalDataMode
+	CustomTagRecord CustomTagRecord
+	MTTagMap        map[string]MTTagInfo // XRef → tag info (from first-pass scan)
+	MTCatMap        map[string]MTCatInfo // XRef → category info
+}
+
+func (o Options) keepOriginalData() bool {
+	return o.OriginalData == "" || o.OriginalData == OriginalDataKeep
+}
+
+func (o Options) customTagGEDCOMTag() string {
+	if o.CustomTagRecord == CustomTagEvent {
+		return "EVEN"
+	}
+	return "FACT"
 }
 
 // Convert transforms a single Ancestry GEDCOM record to FTM-compatible form.
@@ -125,6 +160,9 @@ func Convert(n *gedcom.Node, stats *Stats, opts Options) *gedcom.Node {
 
 	switch n.Tag {
 	case "HEAD":
+		if opts.keepOriginalData() {
+			return cloneNode(n)
+		}
 		return convertHEAD(n, stats)
 	case "INDI":
 		return convertINDI(n, stats, opts)
@@ -135,17 +173,28 @@ func Convert(n *gedcom.Node, stats *Stats, opts Options) *gedcom.Node {
 			stats.Dropped["OBJE"]++
 			return nil
 		}
+		if opts.keepOriginalData() {
+			return preserveOBJE(n, stats)
+		}
 		return convertOBJE(n, stats)
 	case "SOUR":
+		if opts.keepOriginalData() {
+			return preserveAndConvertSOURCitations(n, stats)
+		}
 		return convertSOUR(n, stats)
 	case "_MTTAG", "_MTCAT":
-		// Ancestry-specific DNA matching records — no FTM equivalent
+		if opts.keepOriginalData() {
+			return cloneNode(n)
+		}
 		stats.Dropped[n.Tag]++
 		return nil
 	case "TRLR":
 		// Dropped here; main.go writes the trailer after all records
 		return nil
 	default:
+		if opts.keepOriginalData() {
+			return cloneNode(n)
+		}
 		return filterChildren(n, stats)
 	}
 }
@@ -177,6 +226,32 @@ func convertHEAD(n *gedcom.Node, stats *Stats) *gedcom.Node {
 func convertINDI(n *gedcom.Node, stats *Stats, opts Options) *gedcom.Node {
 	out := shallowCopy(n)
 	for _, child := range n.Children {
+		if opts.NoMedia && child.Tag == "OBJE" {
+			stats.Dropped["OBJE"]++
+			continue
+		}
+		if opts.keepOriginalData() {
+			out.Children = append(out.Children, cloneNode(child))
+			switch child.Tag {
+			case "GRAD":
+				converted := convertGRAD(child, stats)
+				if !nodesEqual(converted, child) && !containsNode(n.Children, converted) {
+					out.Children = append(out.Children, converted)
+				}
+			case "_MTTAG":
+				if converted := convertMTTag(child, opts); converted != nil &&
+					!containsNode(n.Children, converted) {
+					out.Children = append(out.Children, converted)
+					stats.Converted["_MTTAG→"+converted.Tag]++
+				}
+			default:
+				converted := preserveAndConvertSOURCitations(child, stats)
+				if !nodesEqual(converted, child) {
+					out.Children[len(out.Children)-1] = converted
+				}
+			}
+			continue
+		}
 		if dropTags[child.Tag] {
 			stats.Dropped[child.Tag]++
 			continue
@@ -187,7 +262,7 @@ func convertINDI(n *gedcom.Node, stats *Stats, opts Options) *gedcom.Node {
 		case "_MTTAG":
 			if fact := convertMTTag(child, opts); fact != nil {
 				out.Children = append(out.Children, fact)
-				stats.Converted["_MTTAG→FACT"]++
+				stats.Converted["_MTTAG→"+fact.Tag]++
 			} else {
 				stats.Dropped["_MTTAG"]++
 			}
@@ -206,14 +281,14 @@ func convertINDI(n *gedcom.Node, stats *Stats, opts Options) *gedcom.Node {
 	return out
 }
 
-// convertMTTag converts a 1 _MTTAG @T#@ reference on an INDI to a FACT entry.
+// convertMTTag converts a 1 _MTTAG @T#@ reference on an INDI to FACT or EVEN.
 func convertMTTag(n *gedcom.Node, opts Options) *gedcom.Node {
 	info, ok := opts.MTTagMap[n.Value]
 	if !ok || info.Name == "" {
 		return nil
 	}
-	fact := &gedcom.Node{Level: n.Level, Tag: "FACT", Value: info.Name}
-	if catName := opts.MTCatMap[info.CatXRef]; catName != "" {
+	fact := &gedcom.Node{Level: n.Level, Tag: opts.customTagGEDCOMTag(), Value: info.Name}
+	if catName := opts.MTCatMap[info.CatXRef].Name; catName != "" {
 		fact.Children = append(fact.Children,
 			&gedcom.Node{Level: n.Level + 1, Tag: "TYPE", Value: catName},
 		)
@@ -230,18 +305,51 @@ func convertMTTag(n *gedcom.Node, opts Options) *gedcom.Node {
 func convertFAM(n *gedcom.Node, stats *Stats, opts Options) *gedcom.Node {
 	out := shallowCopy(n)
 	for _, child := range n.Children {
+		if opts.NoMedia && child.Tag == "OBJE" {
+			stats.Dropped["OBJE"]++
+			continue
+		}
+		if opts.keepOriginalData() {
+			converted := preserveAndConvertSOURCitations(child, stats)
+			if child.Tag == "CHIL" && !opts.NoFRel {
+				if !hasChildTag(converted, "_FREL") {
+					converted.Children = append(converted.Children,
+						&gedcom.Node{Level: child.Level + 1, Tag: "_FREL", Value: "Natural"})
+				}
+				if !hasChildTag(converted, "_MREL") {
+					converted.Children = append(converted.Children,
+						&gedcom.Node{Level: child.Level + 1, Tag: "_MREL", Value: "Natural"})
+				}
+				if !nodesEqual(converted, child) {
+					stats.Converted["CHIL→_FREL/_MREL"]++
+				}
+			}
+			out.Children = append(out.Children, converted)
+			continue
+		}
 		if dropTags[child.Tag] {
 			stats.Dropped[child.Tag]++
 			continue
 		}
 		if child.Tag == "CHIL" {
-			out.Children = append(out.Children, child)
+			converted := cloneNode(child)
 			if !opts.NoFRel {
-				frel := &gedcom.Node{Level: child.Level + 1, Tag: "_FREL", Value: "Natural"}
-				mrel := &gedcom.Node{Level: child.Level + 1, Tag: "_MREL", Value: "Natural"}
-				out.Children = append(out.Children, frel, mrel)
-				stats.Converted["CHIL→_FREL/_MREL"]++
+				added := false
+				if !hasChildTag(converted, "_FREL") {
+					converted.Children = append(converted.Children,
+						&gedcom.Node{Level: child.Level + 1, Tag: "_FREL", Value: "Natural"})
+					added = true
+				}
+				if !hasChildTag(converted, "_MREL") {
+					converted.Children = append(converted.Children,
+						&gedcom.Node{Level: child.Level + 1, Tag: "_MREL", Value: "Natural"})
+					added = true
+				}
+				if added {
+					stats.Converted["CHIL→_FREL/_MREL"]++
+				}
 			}
+			out.Children = append(out.Children, converted)
 			continue
 		}
 		out.Children = append(out.Children, filterSOURCitations(child, stats))
@@ -271,6 +379,22 @@ func convertOBJE(n *gedcom.Node, stats *Stats) *gedcom.Node {
 		default:
 			// drop unknown OBJE children
 			stats.Dropped[child.Tag]++
+		}
+	}
+	return out
+}
+
+func preserveOBJE(n *gedcom.Node, stats *Stats) *gedcom.Node {
+	out := shallowCopy(n)
+	for _, child := range n.Children {
+		out.Children = append(out.Children, cloneNode(child))
+		if child.Tag == "DATE" {
+			converted := cloneNode(child)
+			converted.Tag = "_DATE"
+			if !containsNode(n.Children, converted) {
+				out.Children = append(out.Children, converted)
+				stats.Converted["OBJE DATE→_DATE"]++
+			}
 		}
 	}
 	return out
@@ -405,6 +529,82 @@ func filterChildren(n *gedcom.Node, stats *Stats) *gedcom.Node {
 			continue
 		}
 		out.Children = append(out.Children, filterChildren(child, stats))
+	}
+	return out
+}
+
+// preserveAndConvertSOURCitations retains every original node while adding
+// idempotent _LINK and NOTE siblings for DATA/WWW citation URLs.
+func preserveAndConvertSOURCitations(n *gedcom.Node, stats *Stats) *gedcom.Node {
+	out := shallowCopy(n)
+	for _, child := range n.Children {
+		out.Children = append(out.Children, preserveAndConvertSOURCitations(child, stats))
+		if child.Tag != "DATA" {
+			continue
+		}
+		url := extractWWW(child)
+		if url == "" {
+			continue
+		}
+		link := &gedcom.Node{Level: child.Level, Tag: "_LINK", Value: url}
+		note := &gedcom.Node{Level: child.Level, Tag: "NOTE", Value: url}
+		added := false
+		if !containsNode(n.Children, link) {
+			out.Children = append(out.Children, link)
+			added = true
+		}
+		if !containsNode(n.Children, note) {
+			out.Children = append(out.Children, note)
+			added = true
+		}
+		if added {
+			stats.Converted["DATA/WWW→_LINK"]++
+		}
+	}
+	return out
+}
+
+func hasChildTag(n *gedcom.Node, tag string) bool {
+	for _, child := range n.Children {
+		if child.Tag == tag {
+			return true
+		}
+	}
+	return false
+}
+
+func containsNode(nodes []*gedcom.Node, want *gedcom.Node) bool {
+	for _, node := range nodes {
+		if nodesEqual(node, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func nodesEqual(a, b *gedcom.Node) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Level != b.Level || a.XRef != b.XRef || a.Tag != b.Tag || a.Value != b.Value ||
+		len(a.Children) != len(b.Children) {
+		return false
+	}
+	for i := range a.Children {
+		if !nodesEqual(a.Children[i], b.Children[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func cloneNode(n *gedcom.Node) *gedcom.Node {
+	if n == nil {
+		return nil
+	}
+	out := shallowCopy(n)
+	for _, child := range n.Children {
+		out.Children = append(out.Children, cloneNode(child))
 	}
 	return out
 }

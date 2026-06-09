@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -13,17 +14,35 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	"github.com/ncruces/zenity"
 
 	"github.com/ajkessel/ancestry-tag-converter/converter"
 	"github.com/ajkessel/ancestry-tag-converter/gedcom"
+	apphelp "github.com/ajkessel/ancestry-tag-converter/help"
 )
 
 func main() {
 	a := app.NewWithID("com.ajkessel.ancestry-tag-converter")
 	w := a.NewWindow("Ancestry → FTM Converter")
-	w.Resize(fyne.NewSize(640, 540))
+	w.Resize(fyne.NewSize(640, 600))
+
+	showHelp := func() {
+		helpWindow := a.NewWindow("Ancestry Tag Converter Help")
+		helpText := widget.NewRichTextFromMarkdown(apphelp.Markdown)
+		helpText.Wrapping = fyne.TextWrapWord
+		helpWindow.SetContent(container.NewPadded(container.NewScroll(helpText)))
+		helpWindow.Resize(fyne.NewSize(640, 600))
+		helpWindow.Show()
+	}
+	helpShortcut := helpKeyboardShortcut(runtime.GOOS)
+	helpItem := fyne.NewMenuItem("Help", showHelp)
+	helpItem.Shortcut = helpShortcut
+	w.SetMainMenu(fyne.NewMainMenu(fyne.NewMenu("Help", helpItem)))
+	w.Canvas().AddShortcut(helpShortcut, func(fyne.Shortcut) {
+		showHelp()
+	})
 
 	// ── File entries ──────────────────────────────────────────────────────────
 	inputEntry := widget.NewEntry()
@@ -38,6 +57,10 @@ func main() {
 	mergeCheck := widget.NewCheck("Merge into existing FTM base file", nil)
 	noFRelCheck := widget.NewCheck("Skip _FREL/_MREL Natural (relationship tags)", nil)
 	noMediaCheck := widget.NewCheck("Skip media records (OBJE)", nil)
+	originalDataSelect := widget.NewSelect([]string{"Keep", "Discard"}, nil)
+	originalDataSelect.SetSelected("Keep")
+	customTagSelect := widget.NewSelect([]string{"FACT", "EVENT"}, nil)
+	customTagSelect.SetSelected("FACT")
 
 	// ── Progress ──────────────────────────────────────────────────────────────
 	progressBar := widget.NewProgressBar()
@@ -122,12 +145,14 @@ func main() {
 		doMerge := mergeCheck.Checked
 		noFRel := noFRelCheck.Checked
 		noMedia := noMediaCheck.Checked
+		originalData := converter.OriginalDataMode(strings.ToLower(originalDataSelect.Selected))
+		customTags := converter.CustomTagRecord(strings.ToLower(customTagSelect.Selected))
 
 		convertBtn.Disable()
 		logBox.SetText("")
 		go func() {
 			defer convertBtn.Enable()
-			runConversion(input, output, mergeBase, doMerge, noFRel, noMedia,
+			runConversion(input, output, mergeBase, doMerge, noFRel, noMedia, originalData, customTags,
 				progressBar, phaseLabel, logBox, w)
 		}()
 	}
@@ -178,6 +203,10 @@ func main() {
 		form,
 		mergeCheck,
 		widget.NewSeparator(),
+		widget.NewForm(
+			widget.NewFormItem("Original data:", originalDataSelect),
+			widget.NewFormItem("Custom tags as:", customTagSelect),
+		),
 		noFRelCheck,
 		noMediaCheck,
 		widget.NewSeparator(),
@@ -190,6 +219,16 @@ func main() {
 
 	w.SetContent(container.NewPadded(content))
 	w.ShowAndRun()
+}
+
+func helpKeyboardShortcut(goos string) *desktop.CustomShortcut {
+	if goos == "darwin" {
+		return &desktop.CustomShortcut{
+			KeyName:  fyne.KeySlash,
+			Modifier: fyne.KeyModifierSuper | fyne.KeyModifierShift,
+		}
+	}
+	return &desktop.CustomShortcut{KeyName: fyne.KeyF1}
 }
 
 // ── Conversion logic ──────────────────────────────────────────────────────────
@@ -249,6 +288,8 @@ func appendLog(box *widget.Entry, msg string) {
 func runConversion(
 	inputPath, outputPath, mergeBasePath string,
 	doMerge, noFRel, noMedia bool,
+	originalData converter.OriginalDataMode,
+	customTags converter.CustomTagRecord,
 	bar *widget.ProgressBar,
 	phaseLabel *widget.Label,
 	logBox *widget.Entry,
@@ -285,10 +326,12 @@ func runConversion(
 	pb.finish()
 
 	opts := converter.Options{
-		NoFRel:   noFRel,
-		NoMedia:  noMedia,
-		MTTagMap: mttagMap,
-		MTCatMap: mtcatMap,
+		NoFRel:          noFRel,
+		NoMedia:         noMedia,
+		OriginalData:    originalData,
+		CustomTagRecord: customTags,
+		MTTagMap:        mttagMap,
+		MTCatMap:        mtcatMap,
 	}
 	stats := converter.NewStats()
 	start := time.Now()
@@ -317,6 +360,7 @@ func runConversion(
 			return
 		}
 		pb.finish()
+		customTagPlan := converter.PrepareCustomTagMerge(base, opts)
 
 		// ── Phase 3: convert Ancestry INDIs (50% → 85%) ──────────────────────
 		pb.begin("Converting…", 0.50, 0.35, inputSize)
@@ -338,9 +382,11 @@ func runConversion(
 			}
 			key := converter.IndividualKey(conv)
 			if baseIndi, ok := base.IndiByKey[key]; ok {
+				customTagPlan.RewriteAndMarkINDI(conv)
 				converter.MergeINDI(baseIndi, conv, stats)
 				matched++
 			} else if baseIndi, _ := base.FuzzyMatchINDI(conv); baseIndi != nil {
+				customTagPlan.RewriteAndMarkINDI(conv)
 				converter.MergeINDI(baseIndi, conv, stats)
 				matched++
 			} else {
@@ -349,6 +395,7 @@ func runConversion(
 		}
 		in.Close()
 		pb.finish()
+		customTagPlan.AppendDefinitions()
 
 		// ── Phase 4: write merged output (85% → 100%) ────────────────────────
 		total := int64(len(base.Records))
@@ -429,7 +476,6 @@ func runConversion(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
 
 func gedSize(path string) int64 {
 	fi, err := os.Stat(path)

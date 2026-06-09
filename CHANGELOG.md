@@ -1,0 +1,30 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [Unreleased]
+
+### Added
+
+- Added built-in GUI help, available from the Help menu, **F1** on
+  Windows/Linux, or **Command+?** on macOS.
+- Added CLI and GUI options to keep or discard original Ancestry data. Original
+  data is kept by default.
+- Added CLI and GUI options to convert custom tags to `FACT` records by default
+  or standard GEDCOM `EVEN` records.
+- Added collision-safe retention of referenced `_MTTAG` and `_MTCAT`
+  definitions when merging into an FTM base.
+- Added converter regression tests for data retention, custom event output,
+  media removal, repeated conversion, and repeated merge behavior.
+- Added repository guidance for coding agents in `AGENTS.md`.
+
+### Changed
+
+- Converted fields are now added alongside their original GEDCOM fields when
+  original data is kept.
+- Repeated conversions and merges are idempotent and no longer add duplicate
+  converted fields, relationship tags, or custom-tag definitions.
+- Updated the README and technical reference for the new defaults, interfaces,
+  merge behavior, and idempotency guarantees.
