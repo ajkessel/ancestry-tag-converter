@@ -16,6 +16,9 @@
   literal `EVENT` tag.
 - GUI help content is embedded from `help/HELP.md`. Keep its option descriptions
   and keyboard shortcuts synchronized with the GUI and README.
+- Fyne 2.7 does not dispatch unmodified function keys through
+  `Canvas.AddShortcut`. F1 help is handled by the desktop canvas for the
+  no-focus case and by the custom focusable GUI controls when they have focus.
 - Conversion and merge behavior must remain idempotent. Reprocessing converted
   output or repeating a merge must not duplicate generated fields, relationship
   tags, custom-tag references, or definition records.

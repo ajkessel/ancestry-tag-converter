@@ -43,3 +43,45 @@ func TestHelpKeyboardShortcut(t *testing.T) {
 		})
 	}
 }
+
+func TestHelpWidgetsHandleF1(t *testing.T) {
+	tests := []struct {
+		name  string
+		press func(func())
+	}{
+		{
+			name: "Entry",
+			press: func(showHelp func()) {
+				newHelpEntry(showHelp, false).KeyDown(&fyne.KeyEvent{Name: fyne.KeyF1})
+			},
+		},
+		{
+			name: "Check",
+			press: func(showHelp func()) {
+				newHelpCheck(showHelp, "", nil).TypedKey(&fyne.KeyEvent{Name: fyne.KeyF1})
+			},
+		},
+		{
+			name: "Select",
+			press: func(showHelp func()) {
+				newHelpSelect(showHelp, nil, nil).TypedKey(&fyne.KeyEvent{Name: fyne.KeyF1})
+			},
+		},
+		{
+			name: "Button",
+			press: func(showHelp func()) {
+				newHelpButton(showHelp, "", nil).TypedKey(&fyne.KeyEvent{Name: fyne.KeyF1})
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			called := false
+			test.press(func() { called = true })
+			if !called {
+				t.Fatal("F1 did not invoke help")
+			}
+		})
+	}
+}

@@ -22,6 +22,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Routed F1 through focused GUI controls so the help shortcut works regardless
+  of which form field or button currently has keyboard focus.
 - Converted fields are now added alongside their original GEDCOM fields when
   original data is kept.
 - Repeated conversions and merges are idempotent and no longer add duplicate

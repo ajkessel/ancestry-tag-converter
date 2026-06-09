@@ -43,29 +43,38 @@ func main() {
 	w.Canvas().AddShortcut(helpShortcut, func(fyne.Shortcut) {
 		showHelp()
 	})
+	if runtime.GOOS != "darwin" {
+		if desktopCanvas, ok := w.Canvas().(desktop.Canvas); ok {
+			desktopCanvas.SetOnKeyDown(func(event *fyne.KeyEvent) {
+				if event.Name == fyne.KeyF1 {
+					showHelp()
+				}
+			})
+		}
+	}
 
 	// ── File entries ──────────────────────────────────────────────────────────
-	inputEntry := widget.NewEntry()
+	inputEntry := newHelpEntry(showHelp, false)
 	inputEntry.SetPlaceHolder("Ancestry GEDCOM export…")
-	outputEntry := widget.NewEntry()
+	outputEntry := newHelpEntry(showHelp, false)
 	outputEntry.SetPlaceHolder("Output file…")
-	mergeEntry := widget.NewEntry()
+	mergeEntry := newHelpEntry(showHelp, false)
 	mergeEntry.SetPlaceHolder("FTM base GEDCOM file…")
 	mergeEntry.Disable()
 
 	// ── Options ───────────────────────────────────────────────────────────────
-	mergeCheck := widget.NewCheck("Merge into existing FTM base file", nil)
-	noFRelCheck := widget.NewCheck("Skip _FREL/_MREL Natural (relationship tags)", nil)
-	noMediaCheck := widget.NewCheck("Skip media records (OBJE)", nil)
-	originalDataSelect := widget.NewSelect([]string{"Keep", "Discard"}, nil)
+	mergeCheck := newHelpCheck(showHelp, "Merge into existing FTM base file", nil)
+	noFRelCheck := newHelpCheck(showHelp, "Skip _FREL/_MREL Natural (relationship tags)", nil)
+	noMediaCheck := newHelpCheck(showHelp, "Skip media records (OBJE)", nil)
+	originalDataSelect := newHelpSelect(showHelp, []string{"Keep", "Discard"}, nil)
 	originalDataSelect.SetSelected("Keep")
-	customTagSelect := widget.NewSelect([]string{"FACT", "EVENT"}, nil)
+	customTagSelect := newHelpSelect(showHelp, []string{"FACT", "EVENT"}, nil)
 	customTagSelect.SetSelected("FACT")
 
 	// ── Progress ──────────────────────────────────────────────────────────────
 	progressBar := widget.NewProgressBar()
 	phaseLabel := widget.NewLabel("Ready.")
-	logBox := widget.NewMultiLineEntry()
+	logBox := newHelpEntry(showHelp, true)
 	logBox.Wrapping = fyne.TextWrapWord
 	logBox.SetMinRowsVisible(6)
 
@@ -97,7 +106,7 @@ func main() {
 		}()
 	}
 
-	mergeBrowseBtn := widget.NewButton("Browse…", func() { openGED(mergeEntry.SetText) })
+	mergeBrowseBtn := newHelpButton(showHelp, "Browse…", func() { openGED(mergeEntry.SetText) })
 	mergeBrowseBtn.Disable()
 
 	// Auto-suggest output filename whenever the input path or merge toggle changes.
@@ -131,12 +140,12 @@ func main() {
 	}
 
 	// ── Layout helpers ────────────────────────────────────────────────────────
-	fileRow := func(entry *widget.Entry, btn *widget.Button) *fyne.Container {
+	fileRow := func(entry, btn fyne.CanvasObject) *fyne.Container {
 		return container.NewBorder(nil, nil, nil, btn, entry)
 	}
 
 	// ── Convert action ────────────────────────────────────────────────────────
-	var convertBtn *widget.Button
+	var convertBtn *helpButton
 
 	doConvert := func() {
 		input := inputEntry.Text
@@ -157,7 +166,7 @@ func main() {
 		}()
 	}
 
-	convertBtn = widget.NewButton("Convert", func() {
+	convertBtn = newHelpButton(showHelp, "Convert", func() {
 		input := inputEntry.Text
 		output := outputEntry.Text
 		doMerge := mergeCheck.Checked
@@ -190,10 +199,10 @@ func main() {
 
 	// ── Form ──────────────────────────────────────────────────────────────────
 	form := widget.NewForm(
-		widget.NewFormItem("Ancestry file:", fileRow(inputEntry, widget.NewButton("Browse…", func() {
+		widget.NewFormItem("Ancestry file:", fileRow(inputEntry, newHelpButton(showHelp, "Browse…", func() {
 			openGED(func(p string) { inputEntry.SetText(p) })
 		}))),
-		widget.NewFormItem("Output file:", fileRow(outputEntry, widget.NewButton("Browse…", func() {
+		widget.NewFormItem("Output file:", fileRow(outputEntry, newHelpButton(showHelp, "Browse…", func() {
 			saveGED(func(p string) { outputEntry.SetText(p) })
 		}))),
 		widget.NewFormItem("FTM base file:", fileRow(mergeEntry, mergeBrowseBtn)),
@@ -229,6 +238,95 @@ func helpKeyboardShortcut(goos string) *desktop.CustomShortcut {
 		}
 	}
 	return &desktop.CustomShortcut{KeyName: fyne.KeyF1}
+}
+
+func isHelpKey(event *fyne.KeyEvent) bool {
+	return event != nil && event.Name == fyne.KeyF1
+}
+
+type helpEntry struct {
+	widget.Entry
+	showHelp func()
+}
+
+func newHelpEntry(showHelp func(), multiline bool) *helpEntry {
+	entry := &helpEntry{showHelp: showHelp}
+	entry.MultiLine = multiline
+	entry.Wrapping = fyne.TextWrap(fyne.TextTruncateClip)
+	entry.ExtendBaseWidget(entry)
+	return entry
+}
+
+func (e *helpEntry) KeyDown(event *fyne.KeyEvent) {
+	if isHelpKey(event) {
+		e.showHelp()
+		return
+	}
+	e.Entry.KeyDown(event)
+}
+
+type helpCheck struct {
+	widget.Check
+	showHelp func()
+}
+
+func newHelpCheck(showHelp func(), label string, changed func(bool)) *helpCheck {
+	check := &helpCheck{showHelp: showHelp}
+	check.Text = label
+	check.OnChanged = changed
+	check.ExtendBaseWidget(check)
+	return check
+}
+
+func (c *helpCheck) TypedKey(event *fyne.KeyEvent) {
+	if isHelpKey(event) {
+		c.showHelp()
+		return
+	}
+	c.Check.TypedKey(event)
+}
+
+type helpSelect struct {
+	widget.Select
+	showHelp func()
+}
+
+func newHelpSelect(showHelp func(), options []string, changed func(string)) *helpSelect {
+	selectWidget := &helpSelect{showHelp: showHelp}
+	selectWidget.Options = options
+	selectWidget.PlaceHolder = "(Select one)"
+	selectWidget.OnChanged = changed
+	selectWidget.ExtendBaseWidget(selectWidget)
+	return selectWidget
+}
+
+func (s *helpSelect) TypedKey(event *fyne.KeyEvent) {
+	if isHelpKey(event) {
+		s.showHelp()
+		return
+	}
+	s.Select.TypedKey(event)
+}
+
+type helpButton struct {
+	widget.Button
+	showHelp func()
+}
+
+func newHelpButton(showHelp func(), label string, tapped func()) *helpButton {
+	button := &helpButton{showHelp: showHelp}
+	button.Text = label
+	button.OnTapped = tapped
+	button.ExtendBaseWidget(button)
+	return button
+}
+
+func (b *helpButton) TypedKey(event *fyne.KeyEvent) {
+	if isHelpKey(event) {
+		b.showHelp()
+		return
+	}
+	b.Button.TypedKey(event)
 }
 
 // ── Conversion logic ──────────────────────────────────────────────────────────
@@ -277,7 +375,7 @@ func (r *phaseReader) Read(buf []byte) (n int, err error) {
 	return
 }
 
-func appendLog(box *widget.Entry, msg string) {
+func appendLog(box *helpEntry, msg string) {
 	cur := box.Text
 	if cur != "" {
 		cur += "\n"
@@ -292,7 +390,7 @@ func runConversion(
 	customTags converter.CustomTagRecord,
 	bar *widget.ProgressBar,
 	phaseLabel *widget.Label,
-	logBox *widget.Entry,
+	logBox *helpEntry,
 	win fyne.Window,
 ) {
 	bar.SetValue(0)
