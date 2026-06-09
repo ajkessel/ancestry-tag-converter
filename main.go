@@ -11,6 +11,7 @@ import (
 
 	"github.com/ajkessel/ancestry-tag-converter/converter"
 	"github.com/ajkessel/ancestry-tag-converter/gedcom"
+	"github.com/ajkessel/ancestry-tag-converter/internal/pathcheck"
 )
 
 func main() {
@@ -69,6 +70,15 @@ func main() {
 			fmt.Fprintf(os.Stderr, "note: swapping argument order — %s is the Ancestry file, %s is the FTM base\n", *mergeBase, inputPath)
 			*mergeBase, inputPath = inputPath, *mergeBase
 		}
+	}
+
+	inputPaths := []string{inputPath}
+	if *mergeBase != "" {
+		inputPaths = append(inputPaths, *mergeBase)
+	}
+	if err := pathcheck.EnsureOutputDistinct(outputPath, inputPaths...); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
 	}
 
 	inputSize := fileSize(inputPath)
