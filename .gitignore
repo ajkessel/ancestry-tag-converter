@@ -1,3 +1,4 @@
 *.ged
 dist/
 debug/
+internal/
