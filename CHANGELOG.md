@@ -1,10 +1,6 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-
-## [Unreleased]
+## [0.0.4]
 
 ### Added
 
@@ -31,3 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   converted fields, relationship tags, or custom-tag definitions.
 - Updated the README and technical reference for the new defaults, interfaces,
   merge behavior, and idempotency guarantees.
+
+## [0.0.3]
+
+- Bug fixes, still getting to MVP
