@@ -1,10 +1,45 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 
 	"fyne.io/fyne/v2"
 )
+
+func TestLastBrowseLocationTracksMostRecentSelection(t *testing.T) {
+	var location lastBrowseLocation
+
+	if got := location.directory(); got != "" {
+		t.Fatalf("initial directory = %q, want empty", got)
+	}
+
+	first := filepath.Join("first", "family.ged")
+	location.remember(first)
+	if got, want := location.directory(), filepath.Dir(first); got != want {
+		t.Fatalf("directory after first selection = %q, want %q", got, want)
+	}
+
+	second := filepath.Join("second", "converted.ged")
+	location.remember(second)
+	if got, want := location.directory(), filepath.Dir(second); got != want {
+		t.Fatalf("directory after second selection = %q, want %q", got, want)
+	}
+}
+
+func TestSelectMergeBaseEnablesMerge(t *testing.T) {
+	entry := newHelpEntry(func() {}, false)
+	check := newHelpCheck(func() {}, "Merge", nil)
+
+	selectMergeBase(entry, check, filepath.Join("family", "base.ged"))
+
+	if got, want := entry.Text, filepath.Join("family", "base.ged"); got != want {
+		t.Fatalf("merge base = %q, want %q", got, want)
+	}
+	if !check.Checked {
+		t.Fatal("merge checkbox was not checked")
+	}
+}
 
 func TestHelpKeyboardShortcut(t *testing.T) {
 	tests := []struct {

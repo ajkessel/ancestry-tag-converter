@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -60,11 +61,11 @@ func main() {
 	outputEntry := newHelpEntry(showHelp, false)
 	outputEntry.SetPlaceHolder("Output file…")
 	mergeEntry := newHelpEntry(showHelp, false)
-	mergeEntry.SetPlaceHolder("FTM base GEDCOM file…")
+	mergeEntry.SetPlaceHolder("Base GEDCOM file…")
 	mergeEntry.Disable()
 
 	// ── Options ───────────────────────────────────────────────────────────────
-	mergeCheck := newHelpCheck(showHelp, "Merge into existing FTM base file", nil)
+	mergeCheck := newHelpCheck(showHelp, "Merge into existing base file", nil)
 	noFRelCheck := newHelpCheck(showHelp, "Skip _FREL/_MREL Natural (relationship tags)", nil)
 	noMediaCheck := newHelpCheck(showHelp, "Skip media records (OBJE)", nil)
 	originalDataSelect := newHelpSelect(showHelp, []string{"Keep", "Discard"}, nil)
@@ -81,20 +82,30 @@ func main() {
 
 	// ── Browse helpers (native OS file dialogs via zenity) ───────────────────
 	gedFilter := zenity.FileFilter{Name: "GEDCOM Files", Patterns: []string{"*.ged", "*.GED"}}
+	var browseLocation lastBrowseLocation
 
 	openGED := func(callback func(string)) {
 		go func() {
-			p, err := zenity.SelectFile(zenity.Title("Select GEDCOM file"), gedFilter)
+			options := []zenity.Option{zenity.Title("Select GEDCOM file"), gedFilter}
+			if dir := browseLocation.directory(); dir != "" {
+				options = append(options, zenity.Filename(dir))
+			}
+			p, err := zenity.SelectFile(options...)
 			if err == nil && p != "" {
+				browseLocation.remember(p)
 				callback(p)
 			}
 		}()
 	}
 	saveGED := func(callback func(string)) {
 		go func() {
+			filename := "output.ged"
+			if dir := browseLocation.directory(); dir != "" {
+				filename = filepath.Join(dir, filename)
+			}
 			p, err := zenity.SelectFileSave(
 				zenity.Title("Save output as"),
-				zenity.Filename("output.ged"),
+				zenity.Filename(filename),
 				zenity.ConfirmOverwrite(),
 				gedFilter,
 			)
@@ -102,13 +113,17 @@ func main() {
 				if !strings.HasSuffix(strings.ToLower(p), ".ged") {
 					p += ".ged"
 				}
+				browseLocation.remember(p)
 				callback(p)
 			}
 		}()
 	}
 
-	mergeBrowseBtn := newHelpButton(showHelp, "Browse…", func() { openGED(mergeEntry.SetText) })
-	mergeBrowseBtn.Disable()
+	mergeBrowseBtn := newHelpButton(showHelp, "Browse…", func() {
+		openGED(func(p string) {
+			selectMergeBase(mergeEntry, mergeCheck, p)
+		})
+	})
 
 	// Auto-suggest output filename whenever the input path or merge toggle changes.
 	suggestOutput := func() {
@@ -132,10 +147,8 @@ func main() {
 	mergeCheck.OnChanged = func(checked bool) {
 		if checked {
 			mergeEntry.Enable()
-			mergeBrowseBtn.Enable()
 		} else {
 			mergeEntry.Disable()
-			mergeBrowseBtn.Disable()
 		}
 		suggestOutput()
 	}
@@ -181,7 +194,7 @@ func main() {
 			dialog.ShowError(fmt.Errorf("no output file specified"), w)
 			return
 		case doMerge && mergeBase == "":
-			dialog.ShowError(fmt.Errorf("merge enabled but no FTM base file selected"), w)
+			dialog.ShowError(fmt.Errorf("merge enabled but no base file selected"), w)
 			return
 		}
 
@@ -215,7 +228,7 @@ func main() {
 		widget.NewFormItem("Output file:", fileRow(outputEntry, newHelpButton(showHelp, "Browse…", func() {
 			saveGED(func(p string) { outputEntry.SetText(p) })
 		}))),
-		widget.NewFormItem("FTM base file:", fileRow(mergeEntry, mergeBrowseBtn)),
+		widget.NewFormItem("Base file:", fileRow(mergeEntry, mergeBrowseBtn)),
 	)
 
 	content := container.NewVBox(
@@ -238,6 +251,28 @@ func main() {
 
 	w.SetContent(container.NewPadded(content))
 	w.ShowAndRun()
+}
+
+type lastBrowseLocation struct {
+	mu  sync.RWMutex
+	dir string
+}
+
+func (l *lastBrowseLocation) directory() string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.dir
+}
+
+func (l *lastBrowseLocation) remember(path string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.dir = filepath.Dir(path)
+}
+
+func selectMergeBase(entry *helpEntry, check *helpCheck, path string) {
+	entry.SetText(path)
+	check.SetChecked(true)
 }
 
 func helpKeyboardShortcut(goos string) *desktop.CustomShortcut {
