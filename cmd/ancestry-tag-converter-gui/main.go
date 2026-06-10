@@ -713,11 +713,25 @@ func validateGEDCOMFile(path string) error {
 	}
 	defer f.Close()
 
-	// Scan first 50 lines looking for GEDCOM-like content (lines starting with digits)
+	// Check for known non-GEDCOM file signatures
+	buf := make([]byte, 8)
+	if _, err := f.Read(buf); err == nil {
+		// Check for PDF
+		if len(buf) >= 4 && string(buf[:4]) == "%PDF" {
+			return fmt.Errorf("file is a PDF, not a GEDCOM file")
+		}
+		// Check for ZIP (can be docx, xlsx, etc.)
+		if len(buf) >= 2 && buf[0] == 0x50 && buf[1] == 0x4B {
+			return fmt.Errorf("file is not in GEDCOM format (appears to be a compressed archive)")
+		}
+	}
+
+	// Reset to beginning and scan for GEDCOM structure
+	f.Seek(0, 0)
 	scanner := bufio.NewScanner(f)
 	lineCount := 0
 	foundGEDCOMLine := false
-	for lineCount < 50 && scanner.Scan() {
+	for lineCount < 100 && scanner.Scan() {
 		lineCount++
 		line := scanner.Text()
 		// Skip BOM if present
@@ -726,15 +740,21 @@ func validateGEDCOMFile(path string) error {
 		if line == "" {
 			continue
 		}
-		// GEDCOM lines start with a level number (0-9)
-		if len(line) > 0 && line[0] >= '0' && line[0] <= '9' {
-			foundGEDCOMLine = true
-			break
+
+		// GEDCOM line format: <level> <tag> [<value>]
+		// Level is 0-9, followed by space, followed by tag (letters and underscores)
+		if len(line) >= 3 && line[0] >= '0' && line[0] <= '9' && line[1] == ' ' {
+			// Verify tag looks like GEDCOM (uppercase letters and underscore)
+			tag := strings.Fields(line)
+			if len(tag) >= 2 && isGEDCOMTag(tag[1]) {
+				foundGEDCOMLine = true
+				break
+			}
 		}
 	}
 
 	if !foundGEDCOMLine {
-		return fmt.Errorf("file does not appear to be a valid GEDCOM file (no GEDCOM-formatted lines found)")
+		return fmt.Errorf("file does not appear to be a valid GEDCOM file")
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -742,4 +762,14 @@ func validateGEDCOMFile(path string) error {
 	}
 
 	return nil
+}
+
+func isGEDCOMTag(tag string) bool {
+	for _, ch := range tag {
+		// GEDCOM tags are uppercase letters and underscores
+		if !((ch >= 'A' && ch <= 'Z') || ch == '_' || (ch >= '0' && ch <= '9')) {
+			return false
+		}
+	}
+	return len(tag) > 0
 }

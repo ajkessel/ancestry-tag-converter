@@ -148,12 +148,29 @@ func TestValidateGEDCOMFile(t *testing.T) {
 			errMatch: "empty",
 		},
 		{
-			name: "not GEDCOM",
+			name: "not GEDCOM text",
 			setup: func(path string) error {
 				return os.WriteFile(path, []byte("This is just random text, not GEDCOM"), 0644)
 			},
 			wantErr:  true,
 			errMatch: "does not appear to be a valid GEDCOM file",
+		},
+		{
+			name: "PDF",
+			setup: func(path string) error {
+				return os.WriteFile(path, []byte("%PDF-1.7\n4 0 obj\nstream\nendstream\nendobj"), 0644)
+			},
+			wantErr:  true,
+			errMatch: "PDF",
+		},
+		{
+			name: "ZIP file",
+			setup: func(path string) error {
+				// ZIP signature: 0x50 0x4B (PK)
+				return os.WriteFile(path, []byte{0x50, 0x4B, 0x03, 0x04}, 0644)
+			},
+			wantErr:  true,
+			errMatch: "compressed archive",
 		},
 		{
 			name: "valid GEDCOM",
