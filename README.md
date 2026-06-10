@@ -184,7 +184,7 @@ The window presents all the same options as the CLI:
 
 1. **Ancestry file** — browse to your Ancestry GEDCOM export.
 2. **Output file** — the output path is auto-suggested based on the input filename (`MyTree_ftm.ged` or `MyTree_merged.ged`). You can change it.
-3. **FTM base file** — enabled when "Merge into existing FTM base file" is checked.
+3. **Base file** — enabled when "Merge into existing base file" is checked.
 4. **Original data** — keep all input data (default) or discard data replaced/removed by conversion.
 5. **Custom tags as** — create `FACT` records (default), GEDCOM `EVEN` records, or `REFN` identifiers.
 6. **Options** — checkboxes for skipping relationship tags and/or media records.
@@ -198,7 +198,7 @@ Open the built-in help with **F1** on Windows/Linux or **Command+?** on macOS.
 
 When `--merge` is used, the tool:
 
-1. Loads the entire FTM base file into memory and indexes all individuals by a **match key** (normalized full name + birth year).
+1. Loads the entire base file into memory and indexes all individuals by a **match key** (normalized full name + birth year).
 2. Converts each individual from the Ancestry file.
 3. For each Ancestry individual, finds the matching FTM individual (if any) and adds events that don't already exist in the FTM record.
 
