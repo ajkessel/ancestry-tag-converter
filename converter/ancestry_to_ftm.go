@@ -126,6 +126,7 @@ type CustomTagRecord string
 const (
 	CustomTagFact  CustomTagRecord = "fact"
 	CustomTagEvent CustomTagRecord = "event"
+	CustomTagRefn  CustomTagRecord = "refn"
 )
 
 // Options controls optional conversion behavior. Empty mode values use the
@@ -144,10 +145,14 @@ func (o Options) keepOriginalData() bool {
 }
 
 func (o Options) customTagGEDCOMTag() string {
-	if o.CustomTagRecord == CustomTagEvent {
+	switch o.CustomTagRecord {
+	case CustomTagEvent:
 		return "EVEN"
+	case CustomTagRefn:
+		return "REFN"
+	default:
+		return "FACT"
 	}
-	return "FACT"
 }
 
 // Convert transforms a single Ancestry GEDCOM record to FTM-compatible form.
@@ -281,11 +286,22 @@ func convertINDI(n *gedcom.Node, stats *Stats, opts Options) *gedcom.Node {
 	return out
 }
 
-// convertMTTag converts a 1 _MTTAG @T#@ reference on an INDI to FACT or EVEN.
+// convertMTTag converts a 1 _MTTAG @T#@ reference on an INDI to FACT, EVEN,
+// or REFN.
 func convertMTTag(n *gedcom.Node, opts Options) *gedcom.Node {
 	info, ok := opts.MTTagMap[n.Value]
 	if !ok || info.Name == "" {
 		return nil
+	}
+	if opts.CustomTagRecord == CustomTagRefn {
+		return &gedcom.Node{
+			Level: n.Level,
+			Tag:   "REFN",
+			Value: n.Value,
+			Children: []*gedcom.Node{
+				{Level: n.Level + 1, Tag: "TYPE", Value: info.Name},
+			},
+		}
 	}
 	fact := &gedcom.Node{Level: n.Level, Tag: opts.customTagGEDCOMTag(), Value: info.Name}
 	if catName := opts.MTCatMap[info.CatXRef].Name; catName != "" {

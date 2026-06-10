@@ -294,11 +294,17 @@ func normalizeDate(s string) string {
 // MergeINDI adds non-duplicate events from src (converted Ancestry) into dst (FTM base).
 // Returns the number of events added.
 func MergeINDI(dst, src *gedcom.Node, stats *Stats) int {
+	return MergeINDIWithOptions(dst, src, stats, Options{})
+}
+
+// MergeINDIWithOptions adds non-duplicate events from src while allowing a
+// generated custom-tag REFN through the normal structural-tag filter.
+func MergeINDIWithOptions(dst, src *gedcom.Node, stats *Stats, opts Options) int {
 	added := 0
 	existing := buildExistingSet(dst)
 
 	for _, child := range src.Children {
-		if skipMergeTags[child.Tag] {
+		if skipMergeTags[child.Tag] && !isConvertedMTTagREFN(child, opts) {
 			continue
 		}
 		// Singleton: skip if dst already has this event type
@@ -318,6 +324,24 @@ func MergeINDI(dst, src *gedcom.Node, stats *Stats) int {
 		added++
 	}
 	return added
+}
+
+func isConvertedMTTagREFN(n *gedcom.Node, opts Options) bool {
+	if opts.CustomTagRecord != CustomTagRefn || n.Tag != "REFN" ||
+		!strings.HasPrefix(n.Value, "@T") || !strings.HasSuffix(n.Value, "@") {
+		return false
+	}
+	tagName := childValue(n, "TYPE")
+	if tagName == "" {
+		return false
+	}
+	if len(opts.MTTagMap) == 0 {
+		// Supports merging a previously converted discard-mode file, where the
+		// original _MTTAG definitions are no longer available.
+		return true
+	}
+	info, ok := opts.MTTagMap[n.Value]
+	return ok && info.Name == tagName
 }
 
 // CustomTagMergePlan remaps retained Ancestry custom-tag references so they do

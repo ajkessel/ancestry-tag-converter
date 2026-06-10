@@ -35,7 +35,7 @@ This tool has no network interaction and does not retain any information.
 - Adds `_FREL Natural` / `_MREL Natural` after each `CHIL` record in families
 - Converts media dates (`DATE` → `_DATE` inside `OBJE` records)
 - Converts graduation school names from `NOTE` children to inline `GRAD` values
-- Converts `_MTTAG` DNA/matching tags to human-readable `FACT` (default) or `EVEN` entries (two-pass lookup)
+- Converts `_MTTAG` DNA/matching tags to `FACT` (default), `EVEN`, or `REFN` entries (two-pass lookup)
 - Merge mode: preserves all data from an existing FTM file, adding only new events from Ancestry without duplicating anything
 - Automatic argument-order detection (swaps Ancestry/FTM files if passed in the wrong order)
 - Idempotent conversion and merging: repeating the same operation does not add duplicate converted data
@@ -106,7 +106,7 @@ ancestry-tag-converter [flags] --merge ftm-base.ged ancestry.ged output.ged
 |------|-------------|
 | `--merge ftm-base.ged` | Merge converted Ancestry records into an existing FTM file. All FTM data is preserved; only new events are added. |
 | `--original-data keep\|discard` | Keep all original input data alongside converted fields (default), or discard data replaced/removed by conversion. |
-| `--custom-tags fact\|event` | Convert custom tags to `FACT` records (default) or GEDCOM `EVEN` records. |
+| `--custom-tags fact\|event\|refn` | Convert custom tags to `FACT` records (default), GEDCOM `EVEN` records, or `REFN` identifiers. |
 | `--no-frel` | Don't add `_FREL`/`_MREL Natural` to child records. |
 | `--no-media` | Drop all `OBJE` media records and inline media references. |
 | `--verbose` | Print conversion statistics to stderr after completion. |
@@ -126,6 +126,19 @@ ancestry-tag-converter --verbose MyTree.ged MyTree_ftm.ged
 **Discard original Ancestry-only data and create custom events:**
 ```bash
 ancestry-tag-converter --original-data discard --custom-tags event MyTree.ged MyTree_ftm.ged
+```
+
+**Convert custom tags to user reference numbers:**
+```bash
+ancestry-tag-converter --custom-tags refn MyTree.ged MyTree_ftm.ged
+```
+
+Each custom tag becomes a `REFN` whose value is the Ancestry tag ID and whose
+`TYPE` is the tag name:
+
+```gedcom
+1 REFN @T182059@
+2 TYPE DNA Match
 ```
 
 **Merge into an existing FTM tree:**
@@ -173,7 +186,7 @@ The window presents all the same options as the CLI:
 2. **Output file** — the output path is auto-suggested based on the input filename (`MyTree_ftm.ged` or `MyTree_merged.ged`). You can change it.
 3. **FTM base file** — enabled when "Merge into existing FTM base file" is checked.
 4. **Original data** — keep all input data (default) or discard data replaced/removed by conversion.
-5. **Custom tags as** — create `FACT` records (default) or GEDCOM `EVEN` records.
+5. **Custom tags as** — create `FACT` records (default), GEDCOM `EVEN` records, or `REFN` identifiers.
 6. **Options** — checkboxes for skipping relationship tags and/or media records.
 7. **Convert** — starts conversion. If the output file exists, a confirmation dialog appears first.
 
@@ -189,7 +202,7 @@ When `--merge` is used, the tool:
 2. Converts each individual from the Ancestry file.
 3. For each Ancestry individual, finds the matching FTM individual (if any) and adds events that don't already exist in the FTM record.
 
-**What gets merged:** Any event not already present — `FACT`, `OCCU`, `RESI`, `EDUC`, `EVEN`, custom tags, etc. When original data is kept, `_MTTAG` references on matched individuals and their referenced `_MTTAG`/`_MTCAT` definitions are also retained. Definition XRefs are remapped if they collide with the FTM base.
+**What gets merged:** Any event not already present — `FACT`, `OCCU`, `RESI`, `EDUC`, `EVEN`, custom tags, etc. Custom-tag `REFN` records generated with `--custom-tags refn` are also merged; unrelated input `REFN` records remain excluded. When original data is kept, `_MTTAG` references on matched individuals and their referenced `_MTTAG`/`_MTCAT` definitions are also retained. Definition XRefs are remapped if they collide with the FTM base.
 
 **What is never merged:** `NAME`, `SEX`, family links (`FAMC`/`FAMS`), source citations (`SOUR`), media links (`OBJE`), and structural IDs (`REFN`, `RIN`, `CHAN`).
 

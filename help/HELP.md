@@ -25,6 +25,8 @@ The application never modifies the selected input or base file.
 
 - **FACT** creates GEDCOM `FACT` records. This is the default.
 - **EVENT** creates standard GEDCOM `EVEN` records.
+- **REFN** creates a user reference number containing the Ancestry tag ID, with
+  the tag name in its `TYPE` child.
 
 **Skip relationship tags** prevents the addition of `_FREL Natural` and
 `_MREL Natural` to child records.

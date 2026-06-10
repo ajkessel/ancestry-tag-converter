@@ -19,7 +19,7 @@ func main() {
 	noMedia := flag.Bool("no-media", false, "drop all OBJE records and inline OBJE references")
 	mergeBase := flag.String("merge", "", "FTM base GEDCOM to merge converted records into (preserves all base data)")
 	originalData := flag.String("original-data", "keep", "original input data: keep or discard")
-	customTags := flag.String("custom-tags", "fact", "custom tag output record: fact or event")
+	customTags := flag.String("custom-tags", "fact", "custom tag output record: fact, event, or refn")
 	verbose := flag.Bool("verbose", false, "print conversion statistics to stderr")
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: ancestry-tag-converter [flags] input.ged output.ged")
@@ -34,8 +34,9 @@ func main() {
 		os.Exit(1)
 	}
 	if *customTags != string(converter.CustomTagFact) &&
-		*customTags != string(converter.CustomTagEvent) {
-		fmt.Fprintln(os.Stderr, "error: --custom-tags must be fact or event")
+		*customTags != string(converter.CustomTagEvent) &&
+		*customTags != string(converter.CustomTagRefn) {
+		fmt.Fprintln(os.Stderr, "error: --custom-tags must be fact, event, or refn")
 		os.Exit(1)
 	}
 
@@ -169,14 +170,14 @@ func main() {
 			key := converter.IndividualKey(converted)
 			if baseIndi, ok := base.IndiByKey[key]; ok {
 				customTagPlan.RewriteAndMarkINDI(converted)
-				converter.MergeINDI(baseIndi, converted, stats)
+				converter.MergeINDIWithOptions(baseIndi, converted, stats, opts)
 				matched++
 			} else if baseIndi, ambiguous := base.FuzzyMatchINDI(converted); baseIndi != nil {
 				if ambiguous {
 					fmt.Fprintf(os.Stderr, "warning: ambiguous fuzzy match for %s (key=%q); using first candidate\n", converted.XRef, key)
 				}
 				customTagPlan.RewriteAndMarkINDI(converted)
-				converter.MergeINDI(baseIndi, converted, stats)
+				converter.MergeINDIWithOptions(baseIndi, converted, stats, opts)
 				matched++
 			} else {
 				unmatched++

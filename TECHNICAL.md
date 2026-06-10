@@ -113,7 +113,14 @@ Both passes use the same streaming parser, so the file is read twice sequentiall
 - **Keep:** clone every original record and field, then add converted equivalents without removing the source nodes. Explicit removal options such as `NoMedia` still take priority.
 - **Discard:** apply the destructive cleanup rules documented below, matching the application's original behavior.
 
-`converter.Options.CustomTagRecord` accepts `fact` (default) or `event`. The latter emits the standard GEDCOM tag `EVEN`; `EVENT` is only the GUI label.
+`converter.Options.CustomTagRecord` accepts `fact` (default), `event`, or `refn`. `event` emits the standard GEDCOM tag `EVEN`; `EVENT` is only the GUI label. `refn` emits:
+
+```gedcom
+1 REFN @T182059@
+2 TYPE DNA Match
+```
+
+The REFN value preserves the Ancestry tag XRef and TYPE contains the resolved tag name. Category and note values are intentionally omitted from REFN output.
 
 All generated additions are checked against existing nodes. Conversion is idempotent: running the converter on its own output with the same options must not add duplicate fields.
 
@@ -226,7 +233,7 @@ All components are lowercased and whitespace-normalised. Two events with the sam
 
 **Singleton tags** (`BIRT`, `DEAT`, `CHR`, `BAPM`, `BURI`, `FCOM`, `CONF`) are only allowed once per individual. If the FTM record already has one, the Ancestry version is skipped regardless of its content.
 
-**Tags never merged** (always skipped): `NAME`, `SEX`, `FAMC`, `FAMS`, `REFN`, `RIN`, `CHAN`, `OBJE`, `SOUR`.
+**Tags never merged** (always skipped): `NAME`, `SEX`, `FAMC`, `FAMS`, ordinary input `REFN`, `RIN`, `CHAN`, `OBJE`, `SOUR`. A REFN generated from `_MTTAG` when `CustomTagRecord` is `refn` is allowed through and deduplicated by its tag, value, and TYPE.
 
 ### Merge loop
 

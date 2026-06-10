@@ -69,7 +69,7 @@ This tool has no network interaction and does not retain any information.
 - Adds ` + "`_FREL Natural` / `_MREL Natural`" + ` after each ` + "`CHIL`" + ` record in families
 - Converts media dates (` + "`DATE` → `_DATE`" + ` inside ` + "`OBJE`" + ` records)
 - Converts graduation school names from ` + "`NOTE`" + ` children to inline ` + "`GRAD`" + ` values
-- Converts ` + "`_MTTAG`" + ` DNA/matching tags to human-readable ` + "`FACT`" + ` entries (two-pass lookup)
+- Converts ` + "`_MTTAG`" + ` DNA/matching tags to ` + "`FACT`" + `, ` + "`EVEN`" + `, or ` + "`REFN`" + ` entries (two-pass lookup)
 - Merge mode: preserves all data from an existing FTM file, adding only new events from Ancestry without duplicating anything
 - Automatic argument-order detection (swaps Ancestry/FTM files if passed in the wrong order)
 - Available as both a command-line tool and a native GUI`

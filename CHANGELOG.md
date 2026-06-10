@@ -10,6 +10,8 @@
   data is kept by default.
 - Added CLI and GUI options to convert custom tags to `FACT` records by default
   or standard GEDCOM `EVEN` records.
+- Added `REFN` as a third custom-tag conversion format, preserving the Ancestry
+  tag ID as the reference value and the tag name as `TYPE`.
 - Added collision-safe retention of referenced `_MTTAG` and `_MTCAT`
   definitions when merging into an FTM base.
 - Added converter regression tests for data retention, custom event output,

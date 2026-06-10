@@ -14,6 +14,8 @@
   removal options such as `--no-media` still take priority.
 - The GUI label `EVENT` maps to the standard GEDCOM tag `EVEN`; do not emit a
   literal `EVENT` tag.
+- Custom-tag `REFN` output uses the Ancestry `_MTTAG` XRef as the REFN value and
+  the resolved tag name as TYPE. It intentionally omits category and note data.
 - GUI help content is embedded from `help/HELP.md`. Keep its option descriptions
   and keyboard shortcuts synchronized with the GUI and README.
 - Fyne 2.7 does not dispatch unmodified function keys through

@@ -92,6 +92,25 @@ func TestCustomTagsCanBecomeEvents(t *testing.T) {
 	}
 }
 
+func TestCustomTagsCanBecomeReferenceNumbers(t *testing.T) {
+	opts := scanOptions(t, sampleAncestry, OriginalDataKeep, CustomTagRefn)
+	once := convertText(t, sampleAncestry, opts)
+	twice := convertText(t, once, scanOptions(t, once, OriginalDataKeep, CustomTagRefn))
+
+	if once != twice {
+		t.Fatalf("second REFN conversion changed output\n--- once ---\n%s\n--- twice ---\n%s", once, twice)
+	}
+	if !strings.Contains(once, "1 REFN @T1@\n2 TYPE DNA Match\n") {
+		t.Fatalf("REFN option did not emit the expected record:\n%s", once)
+	}
+	if strings.Contains(once, "1 REFN @T1@\n2 TYPE DNA Match\n2 NOTE") {
+		t.Fatal("REFN output unexpectedly retained the custom-tag note")
+	}
+	if strings.Contains(once, "2 TYPE Research") {
+		t.Fatal("REFN output unexpectedly used the custom-tag category as TYPE")
+	}
+}
+
 func TestNoMediaOverridesKeepMode(t *testing.T) {
 	input := strings.Replace(sampleAncestry, "1 _MTTAG @T1@", "1 OBJE @O1@\n1 _MTTAG @T1@", 1)
 	opts := scanOptions(t, input, OriginalDataKeep, CustomTagFact)
@@ -100,6 +119,38 @@ func TestNoMediaOverridesKeepMode(t *testing.T) {
 
 	if strings.Contains(output, " OBJE") {
 		t.Fatalf("no-media retained an OBJE record or reference:\n%s", output)
+	}
+}
+
+func TestMergeIncludesOnlyGeneratedCustomTagREFN(t *testing.T) {
+	input := strings.Replace(
+		sampleAncestry,
+		"1 _MTTAG @T1@",
+		"1 REFN existing-reference\n2 TYPE Existing Type\n1 _MTTAG @T1@",
+		1,
+	)
+	opts := scanOptions(t, input, OriginalDataKeep, CustomTagRefn)
+	baseText := `0 HEAD
+1 SOUR Family Tree Maker
+0 @I9@ INDI
+1 NAME Jane /Doe/
+1 BIRT
+2 DATE 1900
+0 TRLR
+`
+	base := parseIndexed(t, baseText)
+	converted := Convert(findRecord(t, input, "INDI"), NewStats(), opts)
+	baseIndi := base.IndiByKey[IndividualKey(converted)]
+
+	MergeINDIWithOptions(baseIndi, converted, NewStats(), opts)
+	MergeINDIWithOptions(baseIndi, converted, NewStats(), opts)
+
+	merged := writeRecords(t, base.Records)
+	if count := strings.Count(merged, "1 REFN @T1@\n2 TYPE DNA Match\n"); count != 1 {
+		t.Fatalf("generated REFN count = %d, want 1:\n%s", count, merged)
+	}
+	if strings.Contains(merged, "1 REFN existing-reference") {
+		t.Fatalf("ordinary source REFN was merged:\n%s", merged)
 	}
 }
 

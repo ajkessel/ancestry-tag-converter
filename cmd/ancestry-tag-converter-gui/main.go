@@ -69,7 +69,7 @@ func main() {
 	noMediaCheck := newHelpCheck(showHelp, "Skip media records (OBJE)", nil)
 	originalDataSelect := newHelpSelect(showHelp, []string{"Keep", "Discard"}, nil)
 	originalDataSelect.SetSelected("Keep")
-	customTagSelect := newHelpSelect(showHelp, []string{"FACT", "EVENT"}, nil)
+	customTagSelect := newHelpSelect(showHelp, []string{"FACT", "EVENT", "REFN"}, nil)
 	customTagSelect.SetSelected("FACT")
 
 	// ── Progress ──────────────────────────────────────────────────────────────
@@ -500,11 +500,11 @@ func runConversion(
 			key := converter.IndividualKey(conv)
 			if baseIndi, ok := base.IndiByKey[key]; ok {
 				customTagPlan.RewriteAndMarkINDI(conv)
-				converter.MergeINDI(baseIndi, conv, stats)
+				converter.MergeINDIWithOptions(baseIndi, conv, stats, opts)
 				matched++
 			} else if baseIndi, _ := base.FuzzyMatchINDI(conv); baseIndi != nil {
 				customTagPlan.RewriteAndMarkINDI(conv)
-				converter.MergeINDI(baseIndi, conv, stats)
+				converter.MergeINDIWithOptions(baseIndi, conv, stats, opts)
 				matched++
 			} else {
 				unmatched++
