@@ -160,6 +160,8 @@ func main() {
 
 	// ── Convert action ────────────────────────────────────────────────────────
 	var convertBtn *helpButton
+	var openFolderBtn *helpButton
+	var lastOutputPath string
 
 	doConvert := func() {
 		input := inputEntry.Text
@@ -172,11 +174,15 @@ func main() {
 		customTags := converter.CustomTagRecord(strings.ToLower(customTagSelect.Selected))
 
 		convertBtn.Disable()
+		openFolderBtn.Disable()
 		logBox.SetText("")
 		go func() {
 			defer convertBtn.Enable()
-			runConversion(input, output, mergeBase, doMerge, noFRel, noMedia, originalData, customTags,
-				progressBar, phaseLabel, logBox, w)
+			if runConversion(input, output, mergeBase, doMerge, noFRel, noMedia, originalData, customTags,
+				progressBar, phaseLabel, logBox, w) {
+				lastOutputPath = output
+				openFolderBtn.Enable()
+			}
 		}()
 	}
 
@@ -220,6 +226,17 @@ func main() {
 		doConvert()
 	})
 
+	openFolderBtn = newHelpButton(showHelp, "Open Destination Folder", func() {
+		if lastOutputPath == "" {
+			return
+		}
+		dir := filepath.Dir(lastOutputPath)
+		if err := openInFileManager(dir); err != nil {
+			dialog.ShowError(err, w)
+		}
+	})
+	openFolderBtn.Disable()
+
 	// ── Form ──────────────────────────────────────────────────────────────────
 	form := widget.NewForm(
 		widget.NewFormItem("Ancestry file:", fileRow(inputEntry, newHelpButton(showHelp, "Browse…", func() {
@@ -242,7 +259,7 @@ func main() {
 		noFRelCheck,
 		noMediaCheck,
 		widget.NewSeparator(),
-		convertBtn,
+		container.NewHBox(convertBtn, openFolderBtn),
 		progressBar,
 		phaseLabel,
 		widget.NewSeparator(),
@@ -437,7 +454,7 @@ func runConversion(
 	phaseLabel *widget.Label,
 	logBox *helpEntry,
 	win fyne.Window,
-) {
+) bool {
 	bar.SetValue(0)
 
 	inputPaths := []string{inputPath}
@@ -446,7 +463,7 @@ func runConversion(
 	}
 	if err := pathcheck.EnsureOutputDistinct(outputPath, inputPaths...); err != nil {
 		dialog.ShowError(err, win)
-		return
+		return false
 	}
 
 	// Auto-detect argument order: if the "ancestry" file looks like FTM and vice versa, swap.
@@ -467,13 +484,13 @@ func runConversion(
 	scanFile, err := os.Open(inputPath)
 	if err != nil {
 		dialog.ShowError(err, win)
-		return
+		return false
 	}
 	mttagMap, mtcatMap, err := converter.ScanMTTagsFromReader(&phaseReader{r: scanFile, p: pb})
 	scanFile.Close()
 	if err != nil {
 		dialog.ShowError(err, win)
-		return
+		return false
 	}
 	pb.finish()
 
@@ -492,7 +509,7 @@ func runConversion(
 	out, err := os.Create(outputPath)
 	if err != nil {
 		dialog.ShowError(err, win)
-		return
+		return false
 	}
 	defer out.Close()
 	bw := bufio.NewWriterSize(out, 4*1024*1024)
@@ -503,13 +520,13 @@ func runConversion(
 		baseFile, err := os.Open(mergeBasePath)
 		if err != nil {
 			dialog.ShowError(err, win)
-			return
+			return false
 		}
 		base, err := converter.LoadAndIndexFromReader(&phaseReader{r: baseFile, p: pb})
 		baseFile.Close()
 		if err != nil {
 			dialog.ShowError(err, win)
-			return
+			return false
 		}
 		pb.finish()
 		customTagPlan := converter.PrepareCustomTagMerge(base, opts)
@@ -519,7 +536,7 @@ func runConversion(
 		in, err := os.Open(inputPath)
 		if err != nil {
 			dialog.ShowError(err, win)
-			return
+			return false
 		}
 		matched, unmatched := 0, 0
 		parser := gedcom.NewParser(&phaseReader{r: in, p: pb})
@@ -555,7 +572,7 @@ func runConversion(
 		for _, rec := range base.Records {
 			if err := gedcom.WriteRecord(bw, rec); err != nil {
 				dialog.ShowError(err, win)
-				return
+				return false
 			}
 			pb.add(1)
 		}
@@ -569,7 +586,7 @@ func runConversion(
 		in, err := os.Open(inputPath)
 		if err != nil {
 			dialog.ShowError(err, win)
-			return
+			return false
 		}
 		parser := gedcom.NewParser(&phaseReader{r: in, p: pb})
 		for {
@@ -583,7 +600,7 @@ func runConversion(
 			}
 			if err := gedcom.WriteRecord(bw, conv); err != nil {
 				dialog.ShowError(err, win)
-				return
+				return false
 			}
 		}
 		in.Close()
@@ -593,7 +610,7 @@ func runConversion(
 
 	if err := bw.Flush(); err != nil {
 		dialog.ShowError(err, win)
-		return
+		return false
 	}
 
 	elapsed := time.Since(start).Round(time.Millisecond)
@@ -625,6 +642,7 @@ func runConversion(
 	if conv := stats.Converted["CHIL→_FREL/_MREL"]; conv > 0 {
 		appendLog(logBox, fmt.Sprintf("Added _FREL/_MREL to %d CHIL records", conv))
 	}
+	return true
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
