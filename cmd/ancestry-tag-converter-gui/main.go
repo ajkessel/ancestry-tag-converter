@@ -466,6 +466,18 @@ func runConversion(
 		return false
 	}
 
+	// Validate input files before processing
+	if err := validateGEDCOMFile(inputPath); err != nil {
+		dialog.ShowError(fmt.Errorf("Ancestry input file: %v", err), win)
+		return false
+	}
+	if doMerge {
+		if err := validateGEDCOMFile(mergeBasePath); err != nil {
+			dialog.ShowError(fmt.Errorf("Base file: %v", err), win)
+			return false
+		}
+	}
+
 	// Auto-detect argument order: if the "ancestry" file looks like FTM and vice versa, swap.
 	if doMerge {
 		if isAncestry(mergeBasePath) && !isAncestry(inputPath) {
@@ -483,13 +495,13 @@ func runConversion(
 	pb.begin("Scanning tags…", 0.0, 0.20, inputSize)
 	scanFile, err := os.Open(inputPath)
 	if err != nil {
-		dialog.ShowError(err, win)
+		dialog.ShowError(fmt.Errorf("cannot open input file: %v", err), win)
 		return false
 	}
 	mttagMap, mtcatMap, err := converter.ScanMTTagsFromReader(&phaseReader{r: scanFile, p: pb})
 	scanFile.Close()
 	if err != nil {
-		dialog.ShowError(err, win)
+		dialog.ShowError(fmt.Errorf("error scanning input file: %v", err), win)
 		return false
 	}
 	pb.finish()
@@ -519,13 +531,13 @@ func runConversion(
 		pb.begin("Loading base…", 0.20, 0.30, gedSize(mergeBasePath))
 		baseFile, err := os.Open(mergeBasePath)
 		if err != nil {
-			dialog.ShowError(err, win)
+			dialog.ShowError(fmt.Errorf("cannot open base file: %v", err), win)
 			return false
 		}
 		base, err := converter.LoadAndIndexFromReader(&phaseReader{r: baseFile, p: pb})
 		baseFile.Close()
 		if err != nil {
-			dialog.ShowError(err, win)
+			dialog.ShowError(fmt.Errorf("error parsing base file: %v", err), win)
 			return false
 		}
 		pb.finish()
@@ -676,4 +688,58 @@ func totalDropped(s *converter.Stats) int {
 		n += v
 	}
 	return n
+}
+
+func validateGEDCOMFile(path string) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("file does not exist")
+		}
+		return fmt.Errorf("cannot access file: %v", err)
+	}
+
+	if fi.IsDir() {
+		return fmt.Errorf("path is a directory, not a file")
+	}
+
+	if fi.Size() == 0 {
+		return fmt.Errorf("file is empty")
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("cannot read file: %v", err)
+	}
+	defer f.Close()
+
+	// Scan first 50 lines looking for GEDCOM-like content (lines starting with digits)
+	scanner := bufio.NewScanner(f)
+	lineCount := 0
+	foundGEDCOMLine := false
+	for lineCount < 50 && scanner.Scan() {
+		lineCount++
+		line := scanner.Text()
+		// Skip BOM if present
+		line = strings.TrimPrefix(line, "\xef\xbb\xbf")
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// GEDCOM lines start with a level number (0-9)
+		if len(line) > 0 && line[0] >= '0' && line[0] <= '9' {
+			foundGEDCOMLine = true
+			break
+		}
+	}
+
+	if !foundGEDCOMLine {
+		return fmt.Errorf("file does not appear to be a valid GEDCOM file (no GEDCOM-formatted lines found)")
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error reading file: %v", err)
+	}
+
+	return nil
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -119,4 +120,88 @@ func TestHelpWidgetsHandleF1(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateGEDCOMFile(t *testing.T) {
+	tmpdir := t.TempDir()
+
+	tests := []struct {
+		name     string
+		setup    func(path string) error
+		wantErr  bool
+		errMatch string
+	}{
+		{
+			name: "nonexistent file",
+			setup: func(path string) error {
+				return nil // file doesn't exist
+			},
+			wantErr:  true,
+			errMatch: "does not exist",
+		},
+		{
+			name: "empty file",
+			setup: func(path string) error {
+				return os.WriteFile(path, []byte{}, 0644)
+			},
+			wantErr:  true,
+			errMatch: "empty",
+		},
+		{
+			name: "not GEDCOM",
+			setup: func(path string) error {
+				return os.WriteFile(path, []byte("This is just random text, not GEDCOM"), 0644)
+			},
+			wantErr:  true,
+			errMatch: "does not appear to be a valid GEDCOM file",
+		},
+		{
+			name: "valid GEDCOM",
+			setup: func(path string) error {
+				return os.WriteFile(path, []byte("0 HEAD\n1 SOUR Test\n0 TRLR"), 0644)
+			},
+			wantErr: false,
+		},
+		{
+			name: "GEDCOM with BOM",
+			setup: func(path string) error {
+				return os.WriteFile(path, append([]byte{0xef, 0xbb, 0xbf}, []byte("0 HEAD\n1 SOUR Test")...), 0644)
+			},
+			wantErr: false,
+		},
+		{
+			name: "directory instead of file",
+			setup: func(path string) error {
+				return os.Mkdir(path, 0755)
+			},
+			wantErr:  true,
+			errMatch: "directory",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(tmpdir, tt.name+".ged")
+			if err := tt.setup(path); err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+
+			err := validateGEDCOMFile(path)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateGEDCOMFile() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && tt.errMatch != "" && (err == nil || !contains(err.Error(), tt.errMatch)) {
+				t.Fatalf("validateGEDCOMFile() error = %v, want to contain %q", err, tt.errMatch)
+			}
+		})
+	}
+}
+
+func contains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
